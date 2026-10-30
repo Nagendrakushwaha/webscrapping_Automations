@@ -1,0 +1,22 @@
+{
+  "name": "ai-lead-intelligence",
+  "version": "1.0.0",
+  "description": "AI Lead Intelligence Web Application - Tex Web Solutions Pvt. Ltd.",
+  "scripts": {
+    "start": "venv\\Scripts\\python.exe -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload",
+    "dev": "venv\\Scripts\\python.exe -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload",
+    "server": "venv\\Scripts\\python.exe -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload",
+    "test:workflow": "venv\\Scripts\\python.exe tests\\test_full_workflow.py"
+  },
+  "keywords": [
+    "lead-intelligence",
+    "b2b-enrichment",
+    "roofing-leads",
+    "web-scraper",
+    "fastapi",
+    "react"
+  ],
+  "author": "Tex Web Solutions Pvt. Ltd.",
+  "license": "ISC"
+}
+
