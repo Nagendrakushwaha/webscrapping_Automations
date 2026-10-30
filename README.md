@@ -107,3 +107,4 @@ To enable additional high-precision external search providers, open **API Settin
 | **Google Places** | Official business addresses, phone numbers, and ratings | Optional (API Key) |
 | **Google Search / Bing / Brave** | Search engine discovery | Optional (API Key) |
 | **Apollo / Hunter** | Verified B2B contacts and email delivery status | Optional (API Key) |
+

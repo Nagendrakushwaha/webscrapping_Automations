@@ -230,3 +230,4 @@ class ApiConfig(Base):
     last_tested = Column(DateTime, nullable=True)
     last_error = Column(Text, default="")
     usage_count = Column(Integer, default=0)
+

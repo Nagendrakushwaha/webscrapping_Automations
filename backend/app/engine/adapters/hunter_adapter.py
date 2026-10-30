@@ -65,3 +65,4 @@ class HunterAdapter(BaseAdapter):
         except Exception:
             pass
         return {}
+

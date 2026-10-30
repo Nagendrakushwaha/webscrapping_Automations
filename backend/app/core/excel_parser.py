@@ -135,3 +135,4 @@ def read_all_companies(file_path: Path, mappings: dict[str, str]) -> list[dict[s
         })
 
     return companies
+

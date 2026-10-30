@@ -64,3 +64,4 @@ csv_path = out_dir / "roofing_leads_sample.csv"
 df.to_excel(excel_path, index=False)
 df.to_csv(csv_path, index=False)
 print(f"Generated {excel_path} and {csv_path}")
+

@@ -46,3 +46,4 @@ class BingAdapter(BaseAdapter):
         except Exception:
             return []
         return []
+

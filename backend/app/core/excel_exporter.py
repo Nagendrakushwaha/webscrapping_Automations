@@ -306,3 +306,4 @@ def export_job_to_csv(job: Job, companies: list[Company]) -> Path:
     export_path = EXPORT_DIR / export_filename
     df.to_csv(export_path, index=False, encoding="utf-8-sig")
     return export_path
+

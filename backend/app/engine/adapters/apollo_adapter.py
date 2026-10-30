@@ -88,3 +88,4 @@ class ApolloAdapter(BaseAdapter):
         except Exception:
             pass
         return []
+

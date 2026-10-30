@@ -37,6 +37,99 @@ class WebsiteAdapter(BaseAdapter):
     async def search(self, query: str, max_results: int = 5) -> list[SearchResultItem]:
         return []
 
+    def crawl_and_extract_sync(self, base_url: str) -> dict[str, Any]:
+        """
+        Synchronous deep crawler for website's key pages.
+        """
+        if not base_url:
+            return {"status": "No Official Website", "evidence": []}
+
+        if not base_url.startswith("http://") and not base_url.startswith("https://"):
+            base_url = "https://" + base_url
+
+        parsed = urlparse(base_url)
+        domain = parsed.netloc.lower()
+        if domain.startswith("www."):
+            domain = domain[4:]
+
+        result: dict[str, Any] = {
+            "official_website": base_url,
+            "domain": domain,
+            "website_status": "Unverified",
+            "title": "",
+            "description": "",
+            "address": "",
+            "zip_code": "",
+            "year_established": "",
+            "emails": set(),
+            "phones": set(),
+            "personal_linkedin": None,
+            "business_linkedin": None,
+            "business_instagram": None,
+            "business_facebook": None,
+            "decision_makers": [],
+            "pages_found": {},
+            "evidence": []
+        }
+
+        headers = {
+            "User-Agent": settings.USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9"
+        }
+
+        try:
+            with httpx.Client(timeout=3.0, verify=False, follow_redirects=True, headers=headers) as client:
+                try:
+                    resp = client.get(base_url)
+                    if resp.status_code < 400:
+                        result["website_status"] = "Active"
+                        result["official_website"] = str(resp.url)
+                    elif resp.status_code in [301, 302, 307, 308]:
+                        result["website_status"] = "Redirected"
+                        result["official_website"] = str(resp.url)
+                    else:
+                        result["website_status"] = f"Broken (Status {resp.status_code})"
+                        return result
+                except Exception:
+                    result["website_status"] = "Broken"
+                    return result
+
+                self._extract_from_html(resp.text, str(resp.url), result, is_home=True)
+
+                soup = BeautifulSoup(resp.text, "html.parser")
+                internal_links: dict[str, str] = {}
+
+                for a_tag in soup.find_all("a", href=True):
+                    href = a_tag["href"].strip()
+                    abs_url = urljoin(str(resp.url), href)
+                    parsed_href = urlparse(abs_url)
+                    href_domain = parsed_href.netloc.lower()
+                    if href_domain.startswith("www."):
+                        href_domain = href_domain[4:]
+                    if href_domain != domain:
+                        continue
+
+                    path = parsed_href.path.lower().strip("/")
+                    for candidate in KEY_PAGES[1:]:
+                        if candidate in path and candidate not in internal_links:
+                            internal_links[candidate] = abs_url
+
+                for page_type, page_url in list(internal_links.items())[:3]:
+                    try:
+                        sub_resp = client.get(page_url)
+                        if sub_resp.status_code == 200:
+                            result["pages_found"][page_type] = page_url
+                            self._extract_from_html(sub_resp.text, page_url, result, is_home=False)
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+        result["emails"] = sorted(list(result["emails"]))
+        result["phones"] = sorted(list(result["phones"]))
+        return result
+
     async def crawl_and_extract(self, base_url: str) -> dict[str, Any]:
         """
         Deep crawls the website's key pages and extracts comprehensive lead information.

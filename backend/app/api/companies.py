@@ -1,17 +1,16 @@
 import json
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, and_, desc
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import or_, and_, desc
 from ..database import get_db
-from ..models import Company, Evidence, ManualReview, DecisionMakerRecord
+from ..models import Company
 from ..schemas import CompanyOut, CompanyDetailOut
 
 router = APIRouter(prefix="/api/companies", tags=["Companies"])
 
 @router.get("/job/{job_id}", response_model=dict)
-async def list_companies_for_job(
+def list_companies_for_job(
     job_id: str,
     page: int = Query(1, ge=1),
     limit: int = Query(25, ge=1, le=100),
@@ -20,16 +19,13 @@ async def list_companies_for_job(
     has_owner: Optional[bool] = None,
     has_email: Optional[bool] = None,
     has_linkedin: Optional[bool] = None,
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
-    """
-    Searchable, sortable, filterable company results table endpoint.
-    """
-    filters = [Company.job_id == job_id]
+    query = db.query(Company).filter(Company.job_id == job_id)
 
     if q:
         search_term = f"%{q.strip()}%"
-        filters.append(or_(
+        query = query.filter(or_(
             Company.original_name.ilike(search_term),
             Company.official_name.ilike(search_term),
             Company.city.ilike(search_term),
@@ -40,37 +36,29 @@ async def list_companies_for_job(
         ))
 
     if status and status != "All":
-        filters.append(Company.overall_verification_status == status)
+        query = query.filter(Company.overall_verification_status == status)
 
     if has_owner is True:
-        filters.append(Company.owner_name != "")
+        query = query.filter(Company.owner_name != "")
     elif has_owner is False:
-        filters.append(Company.owner_name == "")
+        query = query.filter(Company.owner_name == "")
 
     if has_email is True:
-        filters.append(Company.business_email != "")
+        query = query.filter(Company.business_email != "")
     elif has_email is False:
-        filters.append(Company.business_email == "")
+        query = query.filter(Company.business_email == "")
 
     if has_linkedin is True:
-        filters.append(or_(Company.personal_linkedin != "", Company.business_linkedin != ""))
+        query = query.filter(or_(Company.personal_linkedin != "", Company.business_linkedin != ""))
 
-    # Count query
-    count_query = select(Company.id).where(and_(*filters))
-    total_res = await db.execute(count_query)
-    total_count = len(total_res.scalars().all())
-
-    # Data query
+    total_count = query.count()
     offset = (page - 1) * limit
-    data_query = (
-        select(Company)
-        .where(and_(*filters))
-        .order_by(desc(Company.overall_confidence_score), Company.created_at)
+    companies = (
+        query.order_by(desc(Company.overall_confidence_score), Company.created_at)
         .offset(offset)
         .limit(limit)
+        .all()
     )
-    result = await db.execute(data_query)
-    companies = result.scalars().all()
 
     items = []
     for c in companies:
@@ -87,21 +75,17 @@ async def list_companies_for_job(
     }
 
 @router.get("/{company_id}", response_model=CompanyDetailOut)
-async def get_company_detail(company_id: str, db: AsyncSession = Depends(get_db)):
-    """
-    Returns full details for a company, including full evidence ledger, conflicts, and decision makers.
-    """
-    stmt = (
-        select(Company)
+def get_company_detail(company_id: str, db: Session = Depends(get_db)):
+    comp = (
+        db.query(Company)
         .options(
-            selectinload(Company.evidence),
-            selectinload(Company.manual_reviews),
-            selectinload(Company.decision_makers)
+            joinedload(Company.evidence),
+            joinedload(Company.manual_reviews),
+            joinedload(Company.decision_makers)
         )
-        .where(Company.id == company_id)
+        .filter(Company.id == company_id)
+        .first()
     )
-    res = await db.execute(stmt)
-    comp = res.scalars().first()
     if not comp:
         raise HTTPException(status_code=404, detail="Company not found.")
 
@@ -111,7 +95,6 @@ async def get_company_detail(company_id: str, db: AsyncSession = Depends(get_db)
     detail.additional_business_phones = json.loads(comp.additional_business_phones or "[]")
     detail.sources_searched = json.loads(comp.sources_searched or "[]")
 
-    # Map manual review JSON lists
     for r in detail.manual_reviews:
         r.conflicting_values = json.loads(r.conflicting_values if isinstance(r.conflicting_values, str) else "[]")
         r.source_urls = json.loads(r.source_urls if isinstance(r.source_urls, str) else "[]")

@@ -230,3 +230,4 @@ class JobOut(BaseModel):
 
 class JobControlRequest(BaseModel):
     action: str # start, pause, resume, stop, retry_failed
+

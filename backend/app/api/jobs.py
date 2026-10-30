@@ -3,13 +3,12 @@ import shutil
 import json
 import asyncio
 from pathlib import Path
-from typing import Any
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, BackgroundTasks
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, BackgroundTasks
+from sqlalchemy.orm import Session
+from sqlalchemy import desc
 from ..config import UPLOAD_DIR
-from ..database import get_db, AsyncSessionLocal
-from ..models import Job, Company, ApiConfig
+from ..database import get_db, SessionLocal
+from ..models import Job, Company
 from ..schemas import JobOut, JobControlRequest, PreviewResponse, ColumnMappingRequest
 from ..core.excel_parser import parse_and_preview, read_all_companies
 from ..engine.orchestrator import ResearchOrchestrator, ACTIVE_JOBS
@@ -17,10 +16,7 @@ from ..engine.orchestrator import ResearchOrchestrator, ACTIVE_JOBS
 router = APIRouter(prefix="/api/jobs", tags=["Jobs"])
 
 @router.post("/upload-preview", response_model=PreviewResponse)
-async def upload_file_and_preview(file: UploadFile = File(...)):
-    """
-    Accepts XLSX or CSV upload, validates structure, detects columns, and returns a preview.
-    """
+def upload_file_and_preview(file: UploadFile = File(...)):
     ext = Path(file.filename or "").suffix.lower()
     if ext not in [".csv", ".xlsx", ".xls"]:
         raise HTTPException(status_code=400, detail="Only .csv, .xlsx, and .xls files are supported.")
@@ -41,14 +37,11 @@ async def upload_file_and_preview(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=f"Failed to process file: {str(e)}")
 
 @router.post("/start-research", response_model=JobOut)
-async def start_research_job(
+def start_research_job(
     req: ColumnMappingRequest,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
-    """
-    Confirms column mappings, inserts all leads with raw preservation, and launches background research.
-    """
     file_path = UPLOAD_DIR / req.file_id
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Uploaded file not found or expired.")
@@ -57,7 +50,6 @@ async def start_research_job(
     if not companies_data:
         raise HTTPException(status_code=400, detail="No companies found in uploaded file.")
 
-    # Create Job record
     new_job = Job(
         filename=req.file_id,
         total_companies=len(companies_data),
@@ -68,9 +60,8 @@ async def start_research_job(
         settings_json=json.dumps(req.settings or {})
     )
     db.add(new_job)
-    await db.flush()
+    db.flush()
 
-    # Create Company records preserving all original data
     for comp_dict in companies_data:
         comp = Company(
             job_id=new_job.id,
@@ -92,22 +83,21 @@ async def start_research_job(
         )
         db.add(comp)
 
-    await db.commit()
-    await db.refresh(new_job)
+    db.commit()
+    db.refresh(new_job)
 
-    # Launch background orchestrator
-    orchestrator = ResearchOrchestrator(new_job.id, AsyncSessionLocal)
-    task = asyncio.create_task(orchestrator.run())
+    # Launch background orchestrator using FastAPI BackgroundTasks thread pool
+    orchestrator = ResearchOrchestrator(new_job.id, SessionLocal)
     ACTIVE_JOBS[new_job.id] = {
-        "orchestrator": orchestrator,
-        "task": task
+        "orchestrator": orchestrator
     }
+    background_tasks.add_task(orchestrator.run_sync)
 
     return new_job
 
 @router.get("/{job_id}", response_model=JobOut)
-async def get_job_status(job_id: str, db: AsyncSession = Depends(get_db)):
-    job = await db.get(Job, job_id)
+def get_job_status(job_id: str, db: Session = Depends(get_db)):
+    job = db.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found.")
     
@@ -115,14 +105,13 @@ async def get_job_status(job_id: str, db: AsyncSession = Depends(get_db)):
     if job.total_companies > 0:
         pct = round((job.processed_companies / job.total_companies) * 100, 1)
     
-    # Add computed progress
     res = JobOut.model_validate(job)
     res.progress_percentage = pct
     return res
 
 @router.post("/{job_id}/control", response_model=JobOut)
-async def control_job(job_id: str, req: JobControlRequest, db: AsyncSession = Depends(get_db)):
-    job = await db.get(Job, job_id)
+def control_job(job_id: str, req: JobControlRequest, db: Session = Depends(get_db)):
+    job = db.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found.")
 
@@ -137,8 +126,7 @@ async def control_job(job_id: str, req: JobControlRequest, db: AsyncSession = De
         if active_entry:
             active_entry["orchestrator"].pause_requested = False
         else:
-            # Re-launch
-            orchestrator = ResearchOrchestrator(job_id, AsyncSessionLocal)
+            orchestrator = ResearchOrchestrator(job_id, SessionLocal)
             task = asyncio.create_task(orchestrator.run())
             ACTIVE_JOBS[job_id] = {"orchestrator": orchestrator, "task": task}
         job.status = "processing"
@@ -149,29 +137,25 @@ async def control_job(job_id: str, req: JobControlRequest, db: AsyncSession = De
         job.status = "stopped"
         job.current_stage = "Stopped by user"
     elif req.action == "retry_failed":
-        # Reset failed companies to Unverified
-        res = await db.execute(select(Company).where(Company.job_id == job_id, Company.overall_verification_status == "Failed"))
-        failed_comps = res.scalars().all()
+        failed_comps = db.query(Company).filter(Company.job_id == job_id, Company.overall_verification_status == "Failed").all()
         for c in failed_comps:
             c.overall_verification_status = "Unverified"
-        await db.commit()
+        db.commit()
 
-        # Re-launch if not running
         if not active_entry or active_entry["task"].done():
-            orchestrator = ResearchOrchestrator(job_id, AsyncSessionLocal)
+            orchestrator = ResearchOrchestrator(job_id, SessionLocal)
             task = asyncio.create_task(orchestrator.run())
             ACTIVE_JOBS[job_id] = {"orchestrator": orchestrator, "task": task}
         job.status = "processing"
         job.current_stage = "Retrying failed companies"
 
-    await db.commit()
-    await db.refresh(job)
+    db.commit()
+    db.refresh(job)
     return job
 
 @router.get("", response_model=list[JobOut])
-async def list_jobs(db: AsyncSession = Depends(get_db)):
-    res = await db.execute(select(Job).order_by(desc(Job.created_at)).limit(20))
-    jobs = res.scalars().all()
+def list_jobs(db: Session = Depends(get_db)):
+    jobs = db.query(Job).order_by(desc(Job.created_at)).limit(20).all()
     out = []
     for j in jobs:
         pct = round((j.processed_companies / j.total_companies) * 100, 1) if j.total_companies > 0 else 0.0

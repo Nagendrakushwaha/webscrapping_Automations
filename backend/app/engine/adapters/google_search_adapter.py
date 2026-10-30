@@ -52,3 +52,4 @@ class GoogleSearchAdapter(BaseAdapter):
         except Exception:
             return []
         return []
+

@@ -36,3 +36,4 @@ class BaseAdapter(ABC):
     async def test_connection(self) -> tuple[bool, str]:
         """Tests the credentials and connection against the provider."""
         pass
+

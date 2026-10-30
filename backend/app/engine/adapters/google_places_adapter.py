@@ -70,3 +70,4 @@ class GooglePlacesAdapter(BaseAdapter):
         except Exception:
             pass
         return {}
+

@@ -160,3 +160,4 @@ class QueryGenerator:
             cleaned_queries[category] = clean_list
 
         return cleaned_queries
+

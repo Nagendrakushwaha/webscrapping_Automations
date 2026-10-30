@@ -130,3 +130,4 @@ class EntityMatcher:
 
         is_valid = score >= 50
         return is_valid, min(score, 100), ", ".join(reasons)
+

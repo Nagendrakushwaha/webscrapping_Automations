@@ -46,3 +46,4 @@ class BraveAdapter(BaseAdapter):
         except Exception:
             return []
         return []
+

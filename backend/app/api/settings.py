@@ -1,8 +1,7 @@
 import json
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import ApiConfig
 from ..schemas import ApiConfigOut, ApiConfigUpdate, ApiTestRequest, ApiTestResponse
@@ -19,12 +18,9 @@ SUPPORTED_PROVIDERS = [
 ]
 
 @router.get("", response_model=list[ApiConfigOut])
-async def get_all_settings(db: AsyncSession = Depends(get_db)):
-    """
-    Returns list of all supported API providers and their configuration status.
-    """
-    res = await db.execute(select(ApiConfig))
-    existing = {cfg.provider_name.lower(): cfg for cfg in res.scalars().all()}
+def get_all_settings(db: Session = Depends(get_db)):
+    configs = db.query(ApiConfig).all()
+    existing = {cfg.provider_name.lower(): cfg for cfg in configs}
 
     output = []
     for prov in SUPPORTED_PROVIDERS:
@@ -55,13 +51,9 @@ async def get_all_settings(db: AsyncSession = Depends(get_db)):
     return output
 
 @router.post("", response_model=ApiConfigOut)
-async def save_setting(req: ApiConfigUpdate, db: AsyncSession = Depends(get_db)):
-    """
-    Saves or updates API credentials securely.
-    """
+def save_setting(req: ApiConfigUpdate, db: Session = Depends(get_db)):
     key = req.provider_name.lower().replace(" ", "_")
-    res = await db.execute(select(ApiConfig).where(ApiConfig.provider_name == key))
-    cfg = res.scalars().first()
+    cfg = db.query(ApiConfig).filter(ApiConfig.provider_name == key).first()
 
     if not cfg:
         cfg = ApiConfig(provider_name=key)
@@ -72,10 +64,9 @@ async def save_setting(req: ApiConfigUpdate, db: AsyncSession = Depends(get_db))
     if req.extra_config:
         cfg.extra_config = json.dumps(req.extra_config)
     
-    # Reset connection flag until tested
     cfg.is_connected = False
-    await db.commit()
-    await db.refresh(cfg)
+    db.commit()
+    db.refresh(cfg)
 
     return ApiConfigOut(
         id=cfg.id,
@@ -89,19 +80,13 @@ async def save_setting(req: ApiConfigUpdate, db: AsyncSession = Depends(get_db))
     )
 
 @router.post("/test", response_model=ApiTestResponse)
-async def test_provider_connection(req: ApiTestRequest, db: AsyncSession = Depends(get_db)):
-    """
-    Performs a live test of an API provider connection.
-    """
+async def test_provider_connection(req: ApiTestRequest, db: Session = Depends(get_db)):
     key = req.provider_name.lower().replace(" ", "_")
-    
     api_key = req.api_key
     extra = req.extra_config or {}
 
-    # If key not provided in body, load from DB
     if not api_key:
-        res = await db.execute(select(ApiConfig).where(ApiConfig.provider_name == key))
-        cfg = res.scalars().first()
+        cfg = db.query(ApiConfig).filter(ApiConfig.provider_name == key).first()
         if cfg:
             api_key = cfg.api_key
             if not extra and cfg.extra_config:
@@ -117,7 +102,6 @@ async def test_provider_connection(req: ApiTestRequest, db: AsyncSession = Depen
     success = False
     msg = ""
 
-    # Test based on provider
     try:
         if key == "tavily":
             adapter = TavilyAdapter(api_key=api_key, extra_config=extra)
@@ -162,14 +146,12 @@ async def test_provider_connection(req: ApiTestRequest, db: AsyncSession = Depen
         success = False
         msg = f"Connection error: {str(e)}"
 
-    # Update DB config state if exists
-    res = await db.execute(select(ApiConfig).where(ApiConfig.provider_name == key))
-    cfg = res.scalars().first()
+    cfg = db.query(ApiConfig).filter(ApiConfig.provider_name == key).first()
     if cfg:
         cfg.is_connected = success
         cfg.last_tested = datetime.utcnow()
         cfg.last_error = "" if success else msg
-        await db.commit()
+        db.commit()
 
     return ApiTestResponse(
         provider_name=req.provider_name,

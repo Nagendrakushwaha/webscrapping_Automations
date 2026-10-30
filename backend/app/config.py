@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     ]
     
     # Database
-    DATABASE_URL: str = f"sqlite+aiosqlite:///{DATA_DIR / 'leads.db'}"
-    SYNC_DATABASE_URL: str = f"sqlite:///{DATA_DIR / 'leads.db'}"
+    DATABASE_URL: str = f"sqlite+aiosqlite:///{ (DATA_DIR / 'leads.db').as_posix() }"
+    SYNC_DATABASE_URL: str = f"sqlite:///{ (DATA_DIR / 'leads.db').as_posix() }"
     
     # API Keys (loaded from env or UI settings)
     OPENAI_API_KEY: str = ""

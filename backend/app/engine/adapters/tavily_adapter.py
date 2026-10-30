@@ -55,3 +55,4 @@ class TavilyAdapter(BaseAdapter):
         except Exception:
             return []
         return []
+
