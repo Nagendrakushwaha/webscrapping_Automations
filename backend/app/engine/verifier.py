@@ -30,8 +30,8 @@ class DataVerifier:
         # Check domain MX records
         try:
             resolver = dns.resolver.Resolver()
-            resolver.timeout = 3.0
-            resolver.lifetime = 3.0
+            resolver.timeout = 1.5
+            resolver.lifetime = 1.5
             answers = resolver.resolve(domain, 'MX')
             if answers and len(answers) > 0:
                 mx_hosts = [str(r.exchange) for r in answers]

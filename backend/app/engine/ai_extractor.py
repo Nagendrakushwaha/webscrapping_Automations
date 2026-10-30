@@ -1,7 +1,7 @@
 import re
 import json
 from typing import Any, Optional
-from ...config import settings
+from ..config import settings
 from .adapters.base import SearchResultItem
 
 EMAIL_REGEX = re.compile(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+')

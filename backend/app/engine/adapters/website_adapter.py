@@ -78,7 +78,7 @@ class WebsiteAdapter(BaseAdapter):
             "Accept-Language": "en-US,en;q=0.9"
         }
 
-        async with httpx.AsyncClient(timeout=12.0, verify=False, follow_redirects=True, headers=headers) as client:
+        async with httpx.AsyncClient(timeout=4.0, verify=False, follow_redirects=True, headers=headers) as client:
             # 1. First probe base URL
             try:
                 resp = await client.get(base_url)

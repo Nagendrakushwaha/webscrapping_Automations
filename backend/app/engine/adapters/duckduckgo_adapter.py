@@ -30,7 +30,7 @@ class DuckDuckGoAdapter(BaseAdapter):
         data = {"q": query, "b": ""}
         results = []
         try:
-            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True, headers=headers) as client:
+            async with httpx.AsyncClient(timeout=3.0, follow_redirects=True, headers=headers) as client:
                 resp = await client.post(self.endpoint, data=data)
                 if resp.status_code == 200:
                     soup = BeautifulSoup(resp.text, "html.parser")
