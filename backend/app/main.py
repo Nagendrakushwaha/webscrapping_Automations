@@ -4,13 +4,13 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from .config import settings, BASE_DIR
 from .database import init_db
 from .api import jobs_router, companies_router, export_router, settings_router
 
-STATIC_DIR = BASE_DIR / "static"
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
 @asynccontextmanager
@@ -53,6 +53,10 @@ async def health_check():
         "company": settings.COMPANY_NAME,
         "version": settings.APP_VERSION
     }
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(status_code=204)
 
 @app.get("/")
 async def root():
