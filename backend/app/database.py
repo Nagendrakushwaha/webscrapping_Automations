@@ -17,7 +17,7 @@ AsyncSessionLocal = async_sessionmaker(
     autoflush=False
 )
 
-# Sync Engine (for direct export queries)
+# Sync Engine (for direct export and sync operations)
 sync_engine = create_engine(
     settings.SYNC_DATABASE_URL,
     echo=False
@@ -33,6 +33,9 @@ async def get_db():
         finally:
             await session.close()
 
-async def init_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+def init_db():
+    """
+    Synchronously initialize all database tables.
+    """
+    from . import models  # Ensure all models are registered
+    Base.metadata.create_all(bind=sync_engine)

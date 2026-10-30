@@ -16,7 +16,7 @@ STATIC_DIR.mkdir(parents=True, exist_ok=True)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize database tables
-    await init_db()
+    init_db()
     yield
 
 app = FastAPI(

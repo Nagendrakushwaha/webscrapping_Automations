@@ -1,0 +1,6 @@
+id,name,trades,city,state,phone,webssite url,claimed
+ROOF-001,Kanga Roof,"Roofing, Gutters, Siding",Round Rock,TX,(512) 388-7663,https://kangaroof.com,Yes
+ROOF-002,Austin Roofing and Construction,Residential & Commercial Roofing,Austin,TX,(512) 629-4949,https://austinroofingandconstruction.com,Yes
+ROOF-003,Kidd Roofing,Roofing Contractor,Austin,TX,(512) 671-7791,https://kiddroof.com,Yes
+ROOF-004,Ja-Mar Roofing & Sheet Metal,"Roofing, Sheet Metal",Buda,TX,(512) 441-8437,https://jamarroofing.com,Yes
+ROOF-005,Wilson Roofing Co,Roofing Installation & Repair,Austin,TX,(512) 263-3157,https://wilsonroofing.com,No
