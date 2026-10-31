@@ -62,7 +62,7 @@ async def favicon():
 async def root():
     index_file = STATIC_DIR / "index.html"
     if index_file.exists():
-        return FileResponse(index_file)
+        return FileResponse(index_file, media_type="text/html")
     return {
         "app": settings.APP_NAME,
         "status": "running",

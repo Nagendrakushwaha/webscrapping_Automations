@@ -59,20 +59,24 @@ def export_job_to_excel(job: Job, companies: list[Company], evidences: list[Evid
         # Business Details
         "Official Business Name", "Business Category", "Business Description", "Full Business Address", 
         "ZIP Code", "Country", "Year Established", "Company Size", "Official Website", "Website Status",
+        # Agency Intelligence (Tex Web Solutions)
+        "Tech Stack / CMS", "SSL Secured", "Mobile Responsive", "Has Analytics", "SEO Health Score", "Redesign Opportunity",
         # Mandatory Decision-Maker Fields (1-4)
         "Owner Name", "Owner Job Title", "CEO Name", "CEO Job Title", 
         "Founder Name", "Founder Job Title", "Co-Founder Name", "Co-Founder Job Title", 
         "Primary Decision Maker", "Primary Decision Maker Title",
         # Mandatory Contact Fields (5-8)
         "Business Email", "Additional Business Emails", "Business Phone", "Additional Business Phone", 
-        "Personal Professional Email", "Public Professional Phone", "Email Verification Status",
+        "Personal Professional Email", "Public Professional Phone", "Phone Line Type", "Email Verification Status", "Mailbox Provider",
         # Mandatory Social Fields (9-12)
         "Personal LinkedIn", "Business LinkedIn", "Business Instagram", "Business Facebook",
         # Research Information
         "Owner Verification Status", "CEO Verification Status", "Founder Verification Status", "Co-Founder Verification Status",
         "Business Email Status", "Business Phone Status", "Personal Email Status", "Personal Phone Status", 
         "Personal LinkedIn Status", "Business LinkedIn Status", "Instagram Status", "Facebook Status", 
-        "Overall Confidence Score", "Overall Verification Status", "Missing Fields", "Last Checked", "Research Notes"
+        "Overall Confidence Score", "Overall Verification Status", "Missing Fields", "Last Checked", "Research Notes",
+        # AI Cold Outreach Ammunition
+        "Personalized Outreach Pitch"
     ]
     ws_leads.append(headers_sheet1)
 
@@ -88,16 +92,24 @@ def export_job_to_excel(job: Job, companies: list[Company], evidences: list[Evid
             comp.official_name or comp.original_name, comp.business_category or comp.trades,
             comp.business_description, comp.address, comp.zip_code, comp.country,
             comp.year_established, comp.company_size, comp.official_website, comp.website_status,
+            comp.tech_stack_cms or "Custom / Unknown",
+            "Yes" if comp.has_ssl else "No",
+            "Yes" if comp.is_mobile_responsive else "No",
+            "Yes" if comp.has_analytics else "No",
+            comp.seo_audit_score or 0,
+            comp.redesign_opportunity or "Medium",
             comp.owner_name, comp.owner_title, comp.ceo_name, comp.ceo_title,
             comp.founder_name, comp.founder_title, comp.cofounder_name, comp.cofounder_title,
             comp.primary_decision_maker, comp.primary_decision_maker_title,
             comp.business_email, add_emails, comp.business_phone, add_phones,
-            comp.personal_email, comp.personal_phone, comp.email_verification_status,
+            comp.personal_email, comp.personal_phone, comp.phone_line_type or "Landline / Office",
+            comp.email_verification_status, comp.email_mailbox_provider or "Custom",
             comp.personal_linkedin, comp.business_linkedin, comp.business_instagram, comp.business_facebook,
             comp.owner_status, comp.ceo_status, comp.founder_status, comp.cofounder_status,
             comp.business_email_status, comp.business_phone_status, comp.personal_email_status, comp.personal_phone_status,
             comp.personal_linkedin_status, comp.business_linkedin_status, comp.business_instagram_status, comp.business_facebook_status,
-            comp.overall_confidence_score, comp.overall_verification_status, missing, last_chk, comp.research_notes
+            comp.overall_confidence_score, comp.overall_verification_status, missing, last_chk, comp.research_notes,
+            comp.ai_personalized_pitch or ""
         ]
         ws_leads.append(row)
         curr_row = ws_leads.max_row
@@ -258,6 +270,12 @@ def export_job_to_csv(job: Job, companies: list[Company]) -> Path:
             "Company Size": comp.company_size,
             "Official Website": comp.official_website,
             "Website Status": comp.website_status,
+            "Tech Stack / CMS": comp.tech_stack_cms or "Custom / Unknown",
+            "SSL Secured": "Yes" if comp.has_ssl else "No",
+            "Mobile Responsive": "Yes" if comp.is_mobile_responsive else "No",
+            "Has Analytics": "Yes" if comp.has_analytics else "No",
+            "SEO Health Score": comp.seo_audit_score or 0,
+            "Redesign Opportunity": comp.redesign_opportunity or "Medium",
             "Owner Name": comp.owner_name,
             "Owner Job Title": comp.owner_title,
             "CEO Name": comp.ceo_name,
@@ -274,7 +292,9 @@ def export_job_to_csv(job: Job, companies: list[Company]) -> Path:
             "Additional Business Phone": add_phones,
             "Personal Professional Email": comp.personal_email,
             "Public Professional Phone": comp.personal_phone,
+            "Phone Line Type": comp.phone_line_type or "Landline / Office",
             "Email Verification Status": comp.email_verification_status,
+            "Mailbox Provider": comp.email_mailbox_provider or "Custom",
             "Personal LinkedIn": comp.personal_linkedin,
             "Business LinkedIn": comp.business_linkedin,
             "Business Instagram": comp.business_instagram,
@@ -295,7 +315,8 @@ def export_job_to_csv(job: Job, companies: list[Company]) -> Path:
             "Overall Verification Status": comp.overall_verification_status,
             "Missing Fields": missing,
             "Last Checked": last_chk,
-            "Research Notes": comp.research_notes
+            "Research Notes": comp.research_notes,
+            "Personalized Outreach Pitch": comp.ai_personalized_pitch or ""
         }
         data.append(row)
 

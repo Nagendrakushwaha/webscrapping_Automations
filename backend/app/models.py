@@ -79,6 +79,17 @@ class Company(Base):
     team_page_url = Column(String, default="")
     services_page_url = Column(String, default="")
 
+    # Agency & Tech Stack Intelligence (Tex Web Solutions)
+    tech_stack_cms = Column(String, default="Custom / Unknown")
+    has_ssl = Column(Boolean, default=False)
+    is_mobile_responsive = Column(Boolean, default=True)
+    has_analytics = Column(Boolean, default=False)
+    seo_audit_score = Column(Integer, default=0)
+    redesign_opportunity = Column(String, default="Medium") # High, Medium, Low
+    phone_line_type = Column(String, default="Landline / Office")
+    email_mailbox_provider = Column(String, default="Custom")
+    ai_personalized_pitch = Column(Text, default="")
+
     # 3. Mandatory Decision-Maker Fields (Fields 1-4)
     # Field 1: Owner
     owner_name = Column(String, default="")

@@ -69,7 +69,8 @@ class WebsiteAdapter(BaseAdapter):
             "business_facebook": None,
             "decision_makers": [],
             "pages_found": {},
-            "evidence": []
+            "evidence": [],
+            "raw_html": ""
         }
 
         headers = {
@@ -95,6 +96,7 @@ class WebsiteAdapter(BaseAdapter):
                     result["website_status"] = "Broken"
                     return result
 
+                result["raw_html"] = resp.text
                 self._extract_from_html(resp.text, str(resp.url), result, is_home=True)
 
                 soup = BeautifulSoup(resp.text, "html.parser")
@@ -162,7 +164,8 @@ class WebsiteAdapter(BaseAdapter):
             "business_facebook": None,
             "decision_makers": [],
             "pages_found": {},
-            "evidence": []
+            "evidence": [],
+            "raw_html": ""
         }
 
         headers = {
@@ -204,6 +207,7 @@ class WebsiteAdapter(BaseAdapter):
                     return result
 
             # Parse homepage
+            result["raw_html"] = resp.text
             self._extract_from_html(resp.text, str(resp.url), result, is_home=True)
 
             # 2. Discover subpages

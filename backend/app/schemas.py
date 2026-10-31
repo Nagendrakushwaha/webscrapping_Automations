@@ -174,6 +174,17 @@ class CompanyOut(BaseModel):
     
     business_facebook: str
     business_facebook_status: str
+
+    # Agency & Tech Stack Intelligence
+    tech_stack_cms: str = "Custom / Unknown"
+    has_ssl: bool = False
+    is_mobile_responsive: bool = True
+    has_analytics: bool = False
+    seo_audit_score: int = 0
+    redesign_opportunity: str = "Medium"
+    phone_line_type: str = "Landline / Office"
+    email_mailbox_provider: str = "Custom"
+    ai_personalized_pitch: str = ""
     
     overall_confidence_score: int
     overall_verification_status: str

@@ -10,9 +10,12 @@ from .query_generator import QueryGenerator
 from .entity_matcher import EntityMatcher
 from .verifier import DataVerifier
 from .ai_extractor import AIExtractor
+from .tech_auditor import TechStackAuditor
+from .pitch_generator import PitchGenerator
 from .adapters import (
     WebsiteAdapter, TavilyAdapter, GoogleSearchAdapter, GooglePlacesAdapter,
-    BingAdapter, BraveAdapter, DuckDuckGoAdapter, ApolloAdapter, HunterAdapter
+    BingAdapter, BraveAdapter, DuckDuckGoAdapter, ApolloAdapter, HunterAdapter,
+    StateRegistryAdapter
 )
 
 ACTIVE_JOBS: dict[str, dict[str, Any]] = {}
@@ -31,10 +34,12 @@ class ResearchOrchestrator:
         self.verifier = DataVerifier()
         self.website_adapter = WebsiteAdapter()
         self.duckduckgo_adapter = DuckDuckGoAdapter()
+        self.state_registry_adapter = StateRegistryAdapter()
         
         self.adapters: dict[str, Any] = {
             "website": self.website_adapter,
-            "duckduckgo": self.duckduckgo_adapter
+            "duckduckgo": self.duckduckgo_adapter,
+            "state_registry": self.state_registry_adapter
         }
         self.ai_extractor = AIExtractor()
         self.stop_requested = False
@@ -220,6 +225,28 @@ class ResearchOrchestrator:
                     notes=ev["notes"]
                 ))
 
+        # Step 2.5: US State Business Registry Lookup (SOS Filing for Owner/Officers)
+        if not comp.owner_name:
+            state_code = comp.original_state or ""
+            officers = self.state_registry_adapter.lookup_officers_sync(comp.original_name, state_code)
+            if officers:
+                first_officer = officers[0]
+                comp.owner_name = first_officer["name"]
+                comp.owner_title = first_officer.get("title", "Registered Agent / Owner")
+                comp.owner_status = "Found and Verified"
+                comp.owner_confidence = 85
+                sources_searched.append(first_officer["source_name"])
+                evidences_to_add.append(Evidence(
+                    company_id=comp.id,
+                    field_name="Owner / Officer (State Filing)",
+                    discovered_value=first_officer["name"],
+                    source_name=first_officer["source_name"],
+                    source_url=first_officer.get("source_url", ""),
+                    confidence_score=85,
+                    verification_status="Verified",
+                    notes=f"Discovered via Secretary of State corporate registration as {first_officer.get('role_type', 'Officer')}."
+                ))
+
         # Step 3: Primary Decision Maker Resolution
         if comp.owner_name:
             comp.primary_decision_maker = comp.owner_name
@@ -234,11 +261,12 @@ class ResearchOrchestrator:
             comp.primary_decision_maker = comp.ceo_name
             comp.primary_decision_maker_title = comp.ceo_title or "CEO"
 
-        # Step 4: Email Verification
+        # Step 4: Email Verification & Mailbox Provider Detection
         check_email = comp.personal_email or comp.business_email
         if check_email:
-            em_status, em_reason = self.verifier.verify_email_syntax_and_mx(check_email)
+            em_status, em_reason, em_provider = self.verifier.verify_email_syntax_and_mx(check_email)
             comp.email_verification_status = em_status
+            comp.email_mailbox_provider = em_provider
             evidences_to_add.append(Evidence(
                 company_id=comp.id,
                 field_name="Email Deliverability Check",
@@ -247,8 +275,33 @@ class ResearchOrchestrator:
                 source_url="",
                 confidence_score=95 if em_status == "Valid" else 30,
                 verification_status="Verified" if em_status == "Valid" else "Unverified",
-                notes=em_reason
+                notes=f"{em_reason} [Provider: {em_provider}]"
             ))
+
+        # Step 4.5: Phone Line-Type Classification
+        check_phone = comp.business_phone or comp.original_phone or comp.personal_phone
+        if check_phone:
+            comp.phone_line_type = self.verifier.classify_phone_line_type(check_phone)
+
+        # Step 4.6: Tech Stack, SEO Hygiene Audit & Personalized Pitch for Tex Web Solutions
+        raw_html = site_data.get("raw_html", "") if 'site_data' in locals() and site_data else ""
+        audit_results = TechStackAuditor.audit_html(raw_html, comp.official_website or website_target or "")
+        comp.tech_stack_cms = audit_results["tech_stack_cms"]
+        comp.has_ssl = audit_results["has_ssl"]
+        comp.is_mobile_responsive = audit_results["is_mobile_responsive"]
+        comp.has_analytics = audit_results["has_analytics"]
+        comp.seo_audit_score = audit_results["seo_audit_score"]
+        comp.redesign_opportunity = audit_results["redesign_opportunity"]
+
+        comp_dict_pitch = {
+            "owner_name": comp.owner_name,
+            "primary_decision_maker": comp.primary_decision_maker,
+            "official_name": comp.official_name or comp.original_name,
+            "original_name": comp.original_name,
+            "city": comp.original_city,
+            "state": comp.original_state
+        }
+        comp.ai_personalized_pitch = PitchGenerator.generate_pitch(comp_dict_pitch, audit_results)
 
         # Step 5: Missing Fields Assessment across ALL 12 MANDATORY FIELDS
         mandatory_fields = [
@@ -536,6 +589,28 @@ class ResearchOrchestrator:
                     notes=ev["notes"]
                 ))
 
+        # Step 4.5: US State Business Registry Lookup (SOS Filing for Owner/Officers)
+        if not comp.owner_name:
+            state_code = comp.original_state or ""
+            officers = self.state_registry_adapter.lookup_officers_sync(comp.original_name, state_code)
+            if officers:
+                first_officer = officers[0]
+                comp.owner_name = first_officer["name"]
+                comp.owner_title = first_officer.get("title", "Registered Agent / Owner")
+                comp.owner_status = "Found and Verified"
+                comp.owner_confidence = 85
+                sources_searched.append(first_officer["source_name"])
+                evidences_to_add.append(Evidence(
+                    company_id=comp.id,
+                    field_name="Owner / Officer (State Filing)",
+                    discovered_value=first_officer["name"],
+                    source_name=first_officer["source_name"],
+                    source_url=first_officer.get("source_url", ""),
+                    confidence_score=85,
+                    verification_status="Verified",
+                    notes=f"Discovered via Secretary of State corporate registration as {first_officer.get('role_type', 'Officer')}."
+                ))
+
         # Step 5: Primary Decision Maker Resolution
         if comp.owner_name:
             comp.primary_decision_maker = comp.owner_name
@@ -550,11 +625,12 @@ class ResearchOrchestrator:
             comp.primary_decision_maker = comp.ceo_name
             comp.primary_decision_maker_title = comp.ceo_title or "CEO"
 
-        # Step 6: Email Verification
+        # Step 6: Email Verification & Mailbox Provider Detection
         check_email = comp.personal_email or comp.business_email
         if check_email:
-            em_status, em_reason = self.verifier.verify_email_syntax_and_mx(check_email)
+            em_status, em_reason, em_provider = self.verifier.verify_email_syntax_and_mx(check_email)
             comp.email_verification_status = em_status
+            comp.email_mailbox_provider = em_provider
             evidences_to_add.append(Evidence(
                 company_id=comp.id,
                 field_name="Email Deliverability Check",
@@ -563,8 +639,33 @@ class ResearchOrchestrator:
                 source_url="",
                 confidence_score=95 if em_status == "Valid" else 30,
                 verification_status="Verified" if em_status == "Valid" else "Unverified",
-                notes=em_reason
+                notes=f"{em_reason} [Provider: {em_provider}]"
             ))
+
+        # Step 6.5: Phone Line-Type Classification
+        check_phone = comp.business_phone or comp.original_phone or comp.personal_phone
+        if check_phone:
+            comp.phone_line_type = self.verifier.classify_phone_line_type(check_phone)
+
+        # Step 6.6: Tech Stack, SEO Hygiene Audit & Personalized Pitch for Tex Web Solutions
+        raw_html = site_data.get("raw_html", "") if 'site_data' in locals() and site_data else ""
+        audit_results = TechStackAuditor.audit_html(raw_html, comp.official_website or website_target or "")
+        comp.tech_stack_cms = audit_results["tech_stack_cms"]
+        comp.has_ssl = audit_results["has_ssl"]
+        comp.is_mobile_responsive = audit_results["is_mobile_responsive"]
+        comp.has_analytics = audit_results["has_analytics"]
+        comp.seo_audit_score = audit_results["seo_audit_score"]
+        comp.redesign_opportunity = audit_results["redesign_opportunity"]
+
+        comp_dict_pitch = {
+            "owner_name": comp.owner_name,
+            "primary_decision_maker": comp.primary_decision_maker,
+            "official_name": comp.official_name or comp.original_name,
+            "original_name": comp.original_name,
+            "city": comp.original_city,
+            "state": comp.original_state
+        }
+        comp.ai_personalized_pitch = PitchGenerator.generate_pitch(comp_dict_pitch, audit_results)
 
         # Step 7: Missing Fields Assessment across ALL 12 MANDATORY FIELDS
         mandatory_fields = [

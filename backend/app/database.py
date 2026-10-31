@@ -23,7 +23,23 @@ def get_db():
 
 def init_db():
     """
-    Initializes all database tables.
+    Initializes all database tables and auto-migrates missing columns on SQLite.
     """
     from . import models
     Base.metadata.create_all(bind=engine)
+
+    try:
+        with engine.connect() as conn:
+            cursor = conn.exec_driver_sql("PRAGMA table_info(companies)")
+            existing_cols = {row[1] for row in cursor.fetchall()}
+            
+            for col in models.Company.__table__.columns:
+                if col.name not in existing_cols:
+                    col_type = col.type.compile(engine.dialect)
+                    try:
+                        conn.exec_driver_sql(f"ALTER TABLE companies ADD COLUMN {col.name} {col_type}")
+                        conn.commit()
+                    except Exception:
+                        pass
+    except Exception:
+        pass

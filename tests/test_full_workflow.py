@@ -51,15 +51,15 @@ def test_query_generator():
     print("AI Query Generator test PASSED!", flush=True)
 
 def test_email_verifier():
-    print("\n--- 3. Testing Email Syntax & MX Verifier ---", flush=True)
-    status, reason = DataVerifier.verify_email_syntax_and_mx("contact@google.com")
-    print(f"  Valid test (contact@google.com): {status} -> {reason}", flush=True)
+    print("\n--- 3. Testing Email Syntax, MX & Mailbox Provider Verifier ---", flush=True)
+    status, reason, provider = DataVerifier.verify_email_syntax_and_mx("contact@google.com")
+    print(f"  Valid test (contact@google.com): {status} -> {reason} [Provider: {provider}]", flush=True)
     assert status in ["Valid", "Unknown"]
 
-    bad_status, bad_reason = DataVerifier.verify_email_syntax_and_mx("invalid-email-format")
+    bad_status, bad_reason, bad_prov = DataVerifier.verify_email_syntax_and_mx("invalid-email-format")
     print(f"  Invalid format test: {bad_status} -> {bad_reason}", flush=True)
     assert bad_status == "Invalid"
-    print("Email Verifier test PASSED!", flush=True)
+    print("Email & Mailbox Provider Verifier test PASSED!", flush=True)
 
 def test_end_to_end_research(companies_data, mappings):
     print("\n--- 4. Testing End-to-End Research Orchestration & DB Persistence ---", flush=True)
@@ -119,6 +119,7 @@ def test_end_to_end_research(companies_data, mappings):
             "decision_makers": [
                 {"name": "Scott R. Simpson", "title": "Owner & Founder", "role_type": "Owner", "source_url": f"{url}/about"}
             ],
+            "raw_html": "<html><head><title>Kanga Roof - Austin Roofing Contractors</title><meta name='viewport' content='width=device-width, initial-scale=1'><meta name='description' content='Quality roofing services in Austin and Round Rock TX since 1992.'></head><body><p>Powered by WordPress wp-content</p></body></html>",
             "pages_found": {"about": f"{url}/about", "contact": f"{url}/contact"},
             "evidence": [
                 {
@@ -155,14 +156,22 @@ def test_end_to_end_research(companies_data, mappings):
             print(f"      - Website Status: {c.website_status}", flush=True)
             print(f"      - Business Email: {c.business_email} ({c.business_email_status})", flush=True)
             print(f"      - Business Phone: {c.business_phone} ({c.business_phone_status})", flush=True)
+            print(f"      - Phone Line Type: {c.phone_line_type}", flush=True)
+            print(f"      - Mailbox Provider: {c.email_mailbox_provider}", flush=True)
+            print(f"      - Tech Stack / CMS: {c.tech_stack_cms}", flush=True)
+            print(f"      - SEO Health Score: {c.seo_audit_score}/100", flush=True)
+            print(f"      - Redesign Opportunity: {c.redesign_opportunity}", flush=True)
             print(f"      - Owner: {c.owner_name} ({c.owner_status})", flush=True)
             print(f"      - Primary Decision Maker: {c.primary_decision_maker} ({c.primary_decision_maker_title})", flush=True)
             print(f"      - Personal LinkedIn: {c.personal_linkedin}", flush=True)
-            print(f"      - Business LinkedIn: {c.business_linkedin}", flush=True)
-            print(f"      - Business Instagram: {c.business_instagram}", flush=True)
-            print(f"      - Business Facebook: {c.business_facebook}", flush=True)
             print(f"      - Confidence Score: {c.overall_confidence_score}%", flush=True)
             print(f"      - Overall Verification: {c.overall_verification_status}", flush=True)
+            print(f"      - AI Personalized Pitch (Snippet):\n        {c.ai_personalized_pitch.splitlines()[0]}...", flush=True)
+
+            assert c.tech_stack_cms == "WordPress", f"Expected WordPress, got {c.tech_stack_cms}"
+            assert c.seo_audit_score > 0, "SEO Audit Score should be greater than 0"
+            assert c.phone_line_type in ["Landline / Office", "Toll-Free", "Mobile / Cellular"]
+            assert len(c.ai_personalized_pitch) > 50, "AI Personalized Pitch was not generated"
 
         print("\n--- 5. Testing Multi-Sheet Excel Export ---", flush=True)
         excel_path = export_job_to_excel(refreshed_job, comps, evidences, reviews)
@@ -183,7 +192,9 @@ def test_end_to_end_research(companies_data, mappings):
         row1_vals = [cell.value for cell in ws1[1]]
         assert row1_vals[:8] == ["id", "name", "trades", "city", "state", "phone", "webssite url", "claimed"], \
             "Original columns order violated in Sheet 1!"
-        print("  Sheet 1 preserves all 8 original columns as the first 8 columns! PASSED.", flush=True)
+        assert "Tech Stack / CMS" in row1_vals, "Tech Stack / CMS missing from Sheet 1"
+        assert "Personalized Outreach Pitch" in row1_vals, "Personalized Outreach Pitch missing from Sheet 1"
+        print("  Sheet 1 preserves all 8 original columns as first 8 AND includes Tech Stack + Outreach Pitch! PASSED.", flush=True)
 
         # Test CSV export
         csv_path = export_job_to_csv(refreshed_job, comps)

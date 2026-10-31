@@ -8,6 +8,7 @@ from .brave_adapter import BraveAdapter
 from .duckduckgo_adapter import DuckDuckGoAdapter
 from .apollo_adapter import ApolloAdapter
 from .hunter_adapter import HunterAdapter
+from .state_registry_adapter import StateRegistryAdapter
 
 __all__ = [
     "BaseAdapter",
@@ -21,5 +22,5 @@ __all__ = [
     "DuckDuckGoAdapter",
     "ApolloAdapter",
     "HunterAdapter",
+    "StateRegistryAdapter",
 ]
-

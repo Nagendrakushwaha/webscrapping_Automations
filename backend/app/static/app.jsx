@@ -34,7 +34,15 @@ function App() {
   const [apiModalOpen, setApiModalOpen] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState(null);
   const [companyDetail, setCompanyDetail] = useState(null);
-  const [drawerTab, setDrawerTab] = useState("mandatory"); // mandatory, evidence, identity, raw
+  const [drawerTab, setDrawerTab] = useState("mandatory"); // mandatory, evidence, pitch, identity, raw
+  const [pitchCopied, setPitchCopied] = useState(false);
+
+  const copyPitchToClipboard = (text) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setPitchCopied(true);
+    setTimeout(() => setPitchCopied(false), 2000);
+  };
 
   // Upload & Mapping Flow
   const [uploadFile, setUploadFile] = useState(null);
@@ -570,6 +578,25 @@ function App() {
                         ) : (
                           <span className="text-[10px] text-slate-500">No website</span>
                         )}
+                        {/* Agency Intelligence Badges */}
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {c.tech_stack_cms && (
+                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                              💻 {c.tech_stack_cms}
+                            </span>
+                          )}
+                          {c.redesign_opportunity && (
+                            <span className={`text-[9px] px-1.5 py-0.2 rounded font-semibold border ${
+                              c.redesign_opportunity.startsWith("High") 
+                                ? "bg-rose-950/70 text-rose-300 border-rose-800/60"
+                                : c.redesign_opportunity.startsWith("Medium")
+                                ? "bg-amber-950/70 text-amber-300 border-amber-800/60"
+                                : "bg-emerald-950/70 text-emerald-300 border-emerald-800/60"
+                            }`}>
+                              🎯 {c.redesign_opportunity.split(" ")[0]} Opp
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* 2. Mandatory Decision Makers (Owner, CEO, Founder, Co-Founder) */}
@@ -615,13 +642,20 @@ function App() {
                         ) : (
                           <span className="text-slate-500 block text-[11px]">Phone: Not Found</span>
                         )}
-                        {c.email_verification_status && c.email_verification_status !== "Unknown" && (
-                          <span className={`text-[9px] px-1 py-0.2 rounded font-semibold ${
-                            c.email_verification_status === "Valid" ? "bg-emerald-900/60 text-emerald-300" : "bg-rose-900/60 text-rose-300"
-                          }`}>
-                            MX: {c.email_verification_status}
-                          </span>
-                        )}
+                        <div className="flex flex-wrap gap-1 mt-0.5">
+                          {c.email_verification_status && c.email_verification_status !== "Unknown" && (
+                            <span className={`text-[9px] px-1 py-0.2 rounded font-semibold ${
+                              c.email_verification_status === "Valid" ? "bg-emerald-900/60 text-emerald-300" : "bg-rose-900/60 text-rose-300"
+                            }`}>
+                              MX: {c.email_verification_status}
+                            </span>
+                          )}
+                          {c.phone_line_type && c.phone_line_type !== "Unknown" && (
+                            <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                              {c.phone_line_type}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* 4. Personal Professional Contacts */}
@@ -778,28 +812,35 @@ function App() {
                 </div>
 
                 {/* Tabs */}
-                <div className="flex border-b border-slate-800 space-x-4 text-xs font-semibold">
+                <div className="flex border-b border-slate-800 space-x-3 text-xs font-semibold overflow-x-auto pb-1">
                   <button
                     onClick={() => setDrawerTab("mandatory")}
-                    className={`pb-2 border-b-2 transition ${drawerTab === "mandatory" ? "border-blue-500 text-blue-400" : "border-transparent text-slate-400"}`}
+                    className={`pb-2 border-b-2 transition whitespace-nowrap ${drawerTab === "mandatory" ? "border-blue-500 text-blue-400" : "border-transparent text-slate-400"}`}
                   >
                     12 Mandatory Fields
                   </button>
                   <button
+                    onClick={() => setDrawerTab("pitch")}
+                    className={`pb-2 border-b-2 transition whitespace-nowrap flex items-center space-x-1 ${drawerTab === "pitch" ? "border-blue-500 text-blue-400" : "border-transparent text-slate-400"}`}
+                  >
+                    <span>🎯 Cold Pitch</span>
+                    <span className="text-[10px] px-1.5 py-0.2 bg-blue-900/60 text-blue-300 rounded-full font-bold">Tex Web</span>
+                  </button>
+                  <button
                     onClick={() => setDrawerTab("evidence")}
-                    className={`pb-2 border-b-2 transition ${drawerTab === "evidence" ? "border-blue-500 text-blue-400" : "border-transparent text-slate-400"}`}
+                    className={`pb-2 border-b-2 transition whitespace-nowrap ${drawerTab === "evidence" ? "border-blue-500 text-blue-400" : "border-transparent text-slate-400"}`}
                   >
                     Evidence Ledger ({companyDetail.evidence?.length || 0})
                   </button>
                   <button
                     onClick={() => setDrawerTab("identity")}
-                    className={`pb-2 border-b-2 transition ${drawerTab === "identity" ? "border-blue-500 text-blue-400" : "border-transparent text-slate-400"}`}
+                    className={`pb-2 border-b-2 transition whitespace-nowrap ${drawerTab === "identity" ? "border-blue-500 text-blue-400" : "border-transparent text-slate-400"}`}
                   >
-                    Company & Website Identity
+                    Company & Tech Audit
                   </button>
                   <button
                     onClick={() => setDrawerTab("raw")}
-                    className={`pb-2 border-b-2 transition ${drawerTab === "raw" ? "border-blue-500 text-blue-400" : "border-transparent text-slate-400"}`}
+                    className={`pb-2 border-b-2 transition whitespace-nowrap ${drawerTab === "raw" ? "border-blue-500 text-blue-400" : "border-transparent text-slate-400"}`}
                   >
                     Original File Data
                   </button>
@@ -920,6 +961,61 @@ function App() {
                         </p>
                         <div className="mt-2">{renderStatusBadge(companyDetail.business_facebook_status)}</div>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Tab 1.5: Cold Outreach Pitch */}
+                {drawerTab === "pitch" && (
+                  <div className="space-y-4">
+                    {/* Tech & SEO Audit Cards */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                      <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                        <span className="text-slate-400 block text-[10px] font-medium">CMS / Platform</span>
+                        <span className="font-bold text-white text-xs mt-0.5 block truncate">{companyDetail.tech_stack_cms || "Custom"}</span>
+                      </div>
+                      <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                        <span className="text-slate-400 block text-[10px] font-medium">SSL Security</span>
+                        <span className={`font-bold text-xs mt-0.5 block ${companyDetail.has_ssl ? "text-emerald-400" : "text-rose-400"}`}>
+                          {companyDetail.has_ssl ? "HTTPS Secured" : "Unsecured (Risk)"}
+                        </span>
+                      </div>
+                      <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                        <span className="text-slate-400 block text-[10px] font-medium">Mobile Responsive</span>
+                        <span className={`font-bold text-xs mt-0.5 block ${companyDetail.is_mobile_responsive ? "text-emerald-400" : "text-rose-400"}`}>
+                          {companyDetail.is_mobile_responsive ? "Responsive" : "Non-Mobile"}
+                        </span>
+                      </div>
+                      <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                        <span className="text-slate-400 block text-[10px] font-medium">SEO Health Score</span>
+                        <span className="font-bold text-amber-400 text-xs mt-0.5 block">{companyDetail.seo_audit_score || 0} / 100</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-white flex items-center space-x-1.5">
+                        <span>🎯 Tailored Outreach Pitch for Tex Web Solutions</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-blue-900/60 text-blue-300 border border-blue-700/60 font-medium">
+                          {companyDetail.redesign_opportunity || "Medium Opportunity"}
+                        </span>
+                      </span>
+                      <button
+                        onClick={() => copyPitchToClipboard(companyDetail.ai_personalized_pitch)}
+                        className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center space-x-1.5 transition shadow"
+                      >
+                        <span>{pitchCopied ? "✓ Copied to Clipboard!" : "📋 Copy Outreach Pitch"}</span>
+                      </button>
+                    </div>
+
+                    <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-xs text-slate-300 whitespace-pre-wrap leading-relaxed selection:bg-blue-500 selection:text-white">
+                      {companyDetail.ai_personalized_pitch || "No personalized pitch generated yet."}
+                    </div>
+
+                    <div className="p-3 bg-blue-950/30 border border-blue-900/40 rounded-lg text-[11px] text-blue-300 flex items-start space-x-2">
+                      <span className="text-base">💡</span>
+                      <p>
+                        This pitch highlights specific technical weaknesses found during the audit (e.g. mobile responsiveness, SSL, slow builder CMS, missing Google Analytics) to position <strong>Tex Web Solutions Pvt. Ltd.</strong> as the obvious technical partner.
+                      </p>
                     </div>
                   </div>
                 )}
