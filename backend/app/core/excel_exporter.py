@@ -7,7 +7,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import pandas as pd
 from ..config import EXPORT_DIR
-from ..models import Job, Company, Evidence, ManualReview
+from ..models import Job, Company, Evidence, ManualReview, AutomationJob
 
 HEADER_FILL = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
 HEADER_FONT = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
@@ -327,4 +327,208 @@ def export_job_to_csv(job: Job, companies: list[Company]) -> Path:
     export_path = EXPORT_DIR / export_filename
     df.to_csv(export_path, index=False, encoding="utf-8-sig")
     return export_path
+
+
+def export_automation_to_excel(auto_job: AutomationJob, companies: list[Company]) -> Path:
+    """
+    Exports Automated Lead Generation Run into a professional 6-Worksheet Excel Workbook:
+    1. All Companies
+    2. Decision Makers
+    3. Verified Emails
+    4. Missing Websites
+    5. Failed Enrichment
+    6. Automation Summary
+    """
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active) # Remove blank default
+
+    # Standard Lead Columns
+    headers = [
+        "Lead ID", "Company Name", "Industry / Trade", "Opportunity Score", "Score Reason",
+        "City", "State", "Address", "ZIP Code", "Latitude", "Longitude", "Distance (Miles)",
+        "Official Website", "Website Status", "Tech Stack / CMS", "SSL Secured", "Mobile Responsive",
+        "SEO Score", "Redesign Opportunity", "Primary Decision Maker", "Title",
+        "Owner Name", "CEO Name", "Founder Name",
+        "Business Email", "Email Status", "Mailbox Provider",
+        "Business Phone", "Phone Line Type", "Personal Email", "Personal Phone",
+        "Personal LinkedIn", "Business LinkedIn", "Instagram", "Facebook",
+        "Discovery Provider", "Verification Status", "Personalized Outreach Pitch"
+    ]
+
+    def create_lead_row(c: Company) -> list[Any]:
+        return [
+            c.original_id or c.id[:8],
+            c.official_name or c.original_name,
+            c.trades or c.original_trades,
+            c.lead_score or 0,
+            c.lead_score_reason or "N/A",
+            c.city or c.original_city or "N/A",
+            c.state or c.original_state or "N/A",
+            c.address or "N/A",
+            c.zip_code or "N/A",
+            c.latitude if c.latitude is not None else "N/A",
+            c.longitude if c.longitude is not None else "N/A",
+            c.distance_from_center_miles or 0.0,
+            c.official_website or c.original_website or "N/A",
+            c.website_status or "N/A",
+            c.tech_stack_cms or "Custom",
+            "Yes" if c.has_ssl else "No",
+            "Yes" if c.is_mobile_responsive else "No",
+            c.seo_audit_score or 0,
+            c.redesign_opportunity or "Medium",
+            c.primary_decision_maker or "N/A",
+            c.primary_decision_maker_title or "N/A",
+            c.owner_name or "N/A",
+            c.ceo_name or "N/A",
+            c.founder_name or "N/A",
+            c.business_email or "N/A",
+            c.email_verification_status or "Unknown",
+            c.email_mailbox_provider or "Custom",
+            c.business_phone or "N/A",
+            c.phone_line_type or "Landline / Office",
+            c.personal_email or "N/A",
+            c.personal_phone or "N/A",
+            c.personal_linkedin or "N/A",
+            c.business_linkedin or "N/A",
+            c.business_instagram or "N/A",
+            c.business_facebook or "N/A",
+            c.discovery_provider or "Automated",
+            c.overall_verification_status or "Unverified",
+            c.ai_personalized_pitch or "N/A"
+        ]
+
+    def populate_sheet(ws, row_list: list[list[Any]]):
+        ws.append(headers)
+        for r in row_list:
+            ws.append(r)
+            curr = ws.max_row
+            for c_idx in range(1, len(r) + 1):
+                cell = ws.cell(row=curr, column=c_idx)
+                cell.font = DATA_FONT
+                cell.border = THIN_BORDER
+                v = str(cell.value or "")
+                if v.startswith("http://") or v.startswith("https://"):
+                    cell.hyperlink = v
+                    cell.font = LINK_FONT
+        style_header_row(ws, len(headers))
+        auto_fit_columns(ws)
+
+    # 1. All Companies
+    ws_all = wb.create_sheet(title="All Companies")
+    all_rows = [create_lead_row(c) for c in companies]
+    populate_sheet(ws_all, all_rows)
+
+    # 2. Decision Makers
+    ws_dm = wb.create_sheet(title="Decision Makers")
+    dm_rows = [create_lead_row(c) for c in companies if (c.owner_name or c.ceo_name or c.founder_name or c.primary_decision_maker)]
+    populate_sheet(ws_dm, dm_rows)
+
+    # 3. Verified Emails
+    ws_emails = wb.create_sheet(title="Verified Emails")
+    email_rows = [create_lead_row(c) for c in companies if c.email_verification_status == "Valid"]
+    populate_sheet(ws_emails, email_rows)
+
+    # 4. Missing Websites
+    ws_missing = wb.create_sheet(title="Missing Websites")
+    missing_rows = [create_lead_row(c) for c in companies if c.website_status in ["No Official Website", "Broken", "N/A", "Unverified"]]
+    populate_sheet(ws_missing, missing_rows)
+
+    # 5. Failed Enrichment
+    ws_failed = wb.create_sheet(title="Failed Enrichment")
+    failed_rows = [create_lead_row(c) for c in companies if c.overall_verification_status == "Failed"]
+    populate_sheet(ws_failed, failed_rows)
+
+    # 6. Automation Summary
+    ws_summary = wb.create_sheet(title="Automation Summary")
+    ws_summary.append(["AI LEAD INTELLIGENCE — AUTOMATED LEAD GENERATION REPORT"])
+    ws_summary.append(["Tex Web Solutions Pvt. Ltd.", f"Run Date: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}"])
+    ws_summary.append([])
+
+    cfg = json.loads(auto_job.search_config_json or "{}")
+    summary_data = [
+        ["Automation Name", auto_job.name],
+        ["Status", auto_job.status.upper()],
+        ["Target States", ", ".join(cfg.get("states", []))],
+        ["Search Radius", f"{cfg.get('radius_miles', 50)} Miles"],
+        ["Target Industries", ", ".join(cfg.get("industries", []))],
+        ["Total Target Requested", auto_job.total_target],
+        ["Total Businesses Discovered", auto_job.total_discovered],
+        ["Unique Businesses Found", auto_job.unique_discovered],
+        ["Duplicate Records Filtered", auto_job.duplicate_count],
+        ["Successfully Enriched", auto_job.total_enriched],
+        ["Verified MX Emails Found", auto_job.verified_emails_count],
+        ["Failed / Errored Records", auto_job.failed_count],
+        ["Run Started", auto_job.start_time.strftime("%Y-%m-%d %H:%M:%S") if auto_job.start_time else "N/A"],
+        ["Run Completed", auto_job.end_time.strftime("%Y-%m-%d %H:%M:%S") if auto_job.end_time else "In Progress"]
+    ]
+    for row in summary_data:
+        ws_summary.append(row)
+
+    ws_summary.cell(row=1, column=1).font = Font(name="Calibri", size=14, bold=True, color="1E293B")
+    ws_summary.cell(row=2, column=1).font = Font(name="Calibri", size=10, italic=True, color="64748B")
+    for r in range(4, 4 + len(summary_data)):
+        ws_summary.cell(row=r, column=1).font = Font(name="Calibri", size=11, bold=True)
+        ws_summary.cell(row=r, column=2).font = Font(name="Calibri", size=11)
+        ws_summary.cell(row=r, column=1).border = THIN_BORDER
+        ws_summary.cell(row=r, column=2).border = THIN_BORDER
+    auto_fit_columns(ws_summary)
+
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    clean_fn = auto_job.name.replace(" ", "_")
+    export_filename = f"Automation_{clean_fn}_{timestamp}.xlsx"
+    export_path = EXPORT_DIR / export_filename
+    wb.save(export_path)
+    return export_path
+
+
+def export_automation_to_csv(auto_job: AutomationJob, companies: list[Company]) -> Path:
+    """Exports automation discovered leads directly to CSV."""
+    data = []
+    for c in companies:
+        data.append({
+            "Lead ID": c.original_id or c.id[:8],
+            "Company Name": c.official_name or c.original_name,
+            "Industry": c.trades or c.original_trades,
+            "Opportunity Score": c.lead_score or 0,
+            "Score Reason": c.lead_score_reason or "N/A",
+            "City": c.city or c.original_city or "N/A",
+            "State": c.state or c.original_state or "N/A",
+            "Address": c.address or "N/A",
+            "ZIP Code": c.zip_code or "N/A",
+            "Latitude": c.latitude if c.latitude is not None else "N/A",
+            "Longitude": c.longitude if c.longitude is not None else "N/A",
+            "Distance (Miles)": c.distance_from_center_miles or 0.0,
+            "Website": c.official_website or c.original_website or "N/A",
+            "Website Status": c.website_status or "N/A",
+            "Tech Stack / CMS": c.tech_stack_cms or "Custom",
+            "SSL Secured": "Yes" if c.has_ssl else "No",
+            "Mobile Responsive": "Yes" if c.is_mobile_responsive else "No",
+            "SEO Score": c.seo_audit_score or 0,
+            "Redesign Opportunity": c.redesign_opportunity or "Medium",
+            "Decision Maker": c.primary_decision_maker or c.owner_name or "N/A",
+            "Title": c.primary_decision_maker_title or "N/A",
+            "Business Email": c.business_email or "N/A",
+            "Email Status": c.email_verification_status or "Unknown",
+            "Mailbox Provider": c.email_mailbox_provider or "Custom",
+            "Business Phone": c.business_phone or "N/A",
+            "Phone Line Type": c.phone_line_type or "Landline / Office",
+            "Personal Email": c.personal_email or "N/A",
+            "Personal Phone": c.personal_phone or "N/A",
+            "Personal LinkedIn": c.personal_linkedin or "N/A",
+            "Business LinkedIn": c.business_linkedin or "N/A",
+            "Instagram": c.business_instagram or "N/A",
+            "Facebook": c.business_facebook or "N/A",
+            "Provider": c.discovery_provider or "Automated",
+            "Verification Status": c.overall_verification_status or "Unverified",
+            "Personalized Pitch": c.ai_personalized_pitch or "N/A"
+        })
+
+    df = pd.DataFrame(data)
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    clean_fn = auto_job.name.replace(" ", "_")
+    export_filename = f"Automation_{clean_fn}_{timestamp}.csv"
+    export_path = EXPORT_DIR / export_filename
+    df.to_csv(export_path, index=False, encoding="utf-8-sig")
+    return export_path
+
 

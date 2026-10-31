@@ -8,7 +8,10 @@ from fastapi.responses import FileResponse, Response
 
 from .config import settings, BASE_DIR
 from .database import init_db
-from .api import jobs_router, companies_router, export_router, settings_router
+from .api import (
+    jobs_router, companies_router, export_router, 
+    settings_router, locations_router, automation_router
+)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
@@ -40,6 +43,8 @@ app.include_router(jobs_router)
 app.include_router(companies_router)
 app.include_router(export_router)
 app.include_router(settings_router)
+app.include_router(locations_router)
+app.include_router(automation_router)
 
 # Mount static files if present
 if STATIC_DIR.exists():

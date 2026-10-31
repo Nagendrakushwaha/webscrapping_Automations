@@ -23,7 +23,8 @@ def get_db():
 
 def init_db():
     """
-    Initializes all database tables and auto-migrates missing columns on SQLite.
+    Initializes all database tables, auto-migrates missing columns,
+    and seeds official US Census geographic data.
     """
     from . import models
     Base.metadata.create_all(bind=engine)
@@ -43,3 +44,11 @@ def init_db():
                         pass
     except Exception:
         pass
+
+    # Seed official US Census States and Cities database
+    try:
+        from .data.us_locations_seed import seed_us_locations
+        with SessionLocal() as session:
+            seed_us_locations(session)
+    except Exception as e:
+        print(f"Location seeding error: {e}")

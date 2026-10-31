@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    Column, String, Integer, Text, Boolean, DateTime, ForeignKey
+    Column, String, Integer, Text, Boolean, DateTime, ForeignKey, Float
 )
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -78,6 +78,18 @@ class Company(Base):
     about_page_url = Column(String, default="")
     team_page_url = Column(String, default="")
     services_page_url = Column(String, default="")
+
+    # Location & Geospatial Data
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    distance_from_center_miles = Column(Float, default=0.0)
+    google_places_id = Column(String, default="")
+    discovery_provider = Column(String, default="")
+    automation_id = Column(String, default="")
+
+    # Lead Opportunity Scoring (0-100) for Tex Web Solutions
+    lead_score = Column(Integer, default=0)
+    lead_score_reason = Column(Text, default="")
 
     # Agency & Tech Stack Intelligence (Tex Web Solutions)
     tech_stack_cms = Column(String, default="Custom / Unknown")
@@ -241,4 +253,72 @@ class ApiConfig(Base):
     last_tested = Column(DateTime, nullable=True)
     last_error = Column(Text, default="")
     usage_count = Column(Integer, default=0)
+
+
+class USState(Base):
+    __tablename__ = "us_states"
+
+    id = Column(String, primary_key=True) # e.g. "TX"
+    name = Column(String, nullable=False)
+    abbr = Column(String, unique=True, index=True, nullable=False)
+    fips_code = Column(String, default="")
+    capital = Column(String, default="")
+    latitude = Column(Float, default=0.0)
+    longitude = Column(Float, default=0.0)
+
+
+class USCity(Base):
+    __tablename__ = "us_cities"
+
+    id = Column(String, primary_key=True) # e.g. "TX_houston_4835000"
+    state_abbr = Column(String, index=True, nullable=False)
+    city_name = Column(String, index=True, nullable=False)
+    place_type = Column(String, default="city") # city, town, village, CDP
+    is_incorporated = Column(Boolean, default=True)
+    fips_code = Column(String, default="")
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    population = Column(Integer, default=0)
+    county = Column(String, default="")
+
+
+class AutomationJob(Base):
+    __tablename__ = "automation_jobs"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    name = Column(String, default="Automated Lead Run")
+    status = Column(String, default="pending") # pending, running, paused, stopped, completed, failed
+    
+    search_config_json = Column(Text, default="{}")
+    current_state = Column(String, default="")
+    current_city = Column(String, default="")
+    current_industry = Column(String, default="")
+    current_provider = Column(String, default="")
+    current_stage = Column(String, default="")
+    
+    total_target = Column(Integer, default=100)
+    total_discovered = Column(Integer, default=0)
+    unique_discovered = Column(Integer, default=0)
+    duplicate_count = Column(Integer, default=0)
+    total_enriched = Column(Integer, default=0)
+    verified_emails_count = Column(Integer, default=0)
+    failed_count = Column(Integer, default=0)
+    
+    job_id = Column(String, default="") # Corresponding Job ID
+    error_log = Column(Text, default="[]")
+    
+    start_time = Column(DateTime, default=datetime.utcnow)
+    end_time = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SavedSearchConfig(Base):
+    __tablename__ = "saved_search_configs"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    name = Column(String, nullable=False)
+    config_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 
