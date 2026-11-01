@@ -88,6 +88,8 @@ class Company(Base):
     directory_profile_url = Column(String, default="")
     directory_description = Column(Text, default="")
     automation_id = Column(String, default="")
+    national_roofing_job_id = Column(String, default="")
+    gmail_address = Column(String, default="")
 
     # Lead Opportunity Scoring (0-100) for Tex Web Solutions
     lead_score = Column(Integer, default=0)
@@ -325,5 +327,44 @@ class SavedSearchConfig(Base):
     name = Column(String, nullable=False)
     config_json = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class NationalRoofingJob(Base):
+    __tablename__ = "national_roofing_jobs"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    name = Column(String, default="National Roofing Directory Scrape")
+    state = Column(String, default="Texas")
+    state_code = Column(String, default="TX")
+    status = Column(String, default="pending")  # pending, running, paused, stopped, completed, failed
+    
+    current_city = Column(String, default="")
+    current_stage = Column(String, default="Initialized")
+    current_page = Column(Integer, default=1)
+    
+    # Progress Metrics
+    city_pages_discovered = Column(Integer, default=0)
+    city_pages_completed = Column(Integer, default=0)
+    pagination_pages_visited = Column(Integer, default=0)
+    profile_urls_discovered = Column(Integer, default=0)
+    unique_profiles_count = Column(Integer, default=0)
+    profiles_processed = Column(Integer, default=0)
+    profiles_remaining = Column(Integer, default=0)
+    duplicate_count = Column(Integer, default=0)
+    emails_found = Column(Integer, default=0)
+    gmail_found = Column(Integer, default=0)
+    phones_found = Column(Integer, default=0)
+    websites_found = Column(Integer, default=0)
+    failed_profiles_count = Column(Integer, default=0)
+    
+    # Checkpointing & Configuration
+    selected_cities_json = Column(Text, default="[]")  # list of city names
+    checkpoint_json = Column(Text, default="{}")       # {discovered_urls: [], processed_urls: [], failed_urls: [], pending_cities: []}
+    error_log_json = Column(Text, default="[]")
+    
+    start_time = Column(DateTime, default=datetime.utcnow)
+    end_time = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 

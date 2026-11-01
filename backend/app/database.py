@@ -66,6 +66,9 @@ def init_db():
                 "UPDATE automation_jobs SET status='paused', current_stage='Interrupted by server restart. Click Resume to continue.' WHERE status='running'"
             )
             conn.exec_driver_sql(
+                "UPDATE national_roofing_jobs SET status='paused', current_stage='Interrupted by server restart. Click Resume to continue.' WHERE status='running'"
+            )
+            conn.exec_driver_sql(
                 "UPDATE jobs SET status='paused', current_stage='Interrupted by server restart. Click Resume to continue.' WHERE status='processing'"
             )
             conn.commit()

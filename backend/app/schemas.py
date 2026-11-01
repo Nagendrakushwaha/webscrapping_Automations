@@ -243,6 +243,8 @@ class CompanyOut(BaseModel):
     website_screenshot_url: str = ""
     directory_profile_url: str = ""
     directory_description: str = ""
+    gmail_address: str = ""
+    national_roofing_job_id: str = ""
     
     overall_confidence_score: int
     overall_verification_status: str
