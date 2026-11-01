@@ -82,6 +82,12 @@ function App() {
   const [automationLeadsPage, setAutomationLeadsPage] = useState(1);
   const [automationFilterMinScore, setAutomationFilterMinScore] = useState(0);
   const [automationFilterRedesignOnly, setAutomationFilterRedesignOnly] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  const showToast = (message, type = "info") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4500);
+  };
 
   // Search Configuration Form
   const [searchMode, setSearchMode] = useState("cities"); // 'cities' | 'entire_state'
@@ -368,9 +374,9 @@ function App() {
       setActiveAutomationId(res.automation_id);
       setActiveAutomation(res);
       loadAutomationHistory();
-      alert(`Automated Lead Generation Started! Target: ${targetLeads} leads in ${selectedStates.join(", ")}`);
+      showToast(`Automated Lead Generation Started! Target: ${targetLeads} leads in ${selectedStates.join(", ")}`, "success");
     } catch (e) {
-      alert("Error starting automation: " + e.message);
+      showToast("Error starting automation: " + e.message, "error");
     }
   };
 
@@ -572,6 +578,15 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+      {/* Toast Alert Banner */}
+      {toast && (
+        <div className={`fixed top-5 right-6 z-50 flex items-center space-x-3 px-5 py-3 rounded-xl shadow-2xl border backdrop-blur-md text-sm font-semibold transition-all ${
+          toast.type === "error" ? "bg-red-950/90 text-red-200 border-red-800" : "bg-blue-600/95 text-white border-blue-400/40"
+        }`}>
+          <span>{toast.type === "error" ? "⚠️" : "🚀"}</span>
+          <span>{toast.message}</span>
+        </div>
+      )}
       {/* ------------------------------------------------------------- */}
       {/* HEADER / NAVIGATION                                          */}
       {/* ------------------------------------------------------------- */}
