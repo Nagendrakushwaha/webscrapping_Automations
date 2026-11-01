@@ -16,19 +16,6 @@ class ApiConfigOut(BaseModel):
     class Config:
         from_attributes = True
 
-# 7. Bulk CRM & Webhook Schemas
-class BulkCompanyActionRequest(BaseModel):
-    company_ids: list[str]
-    action: str # "update_status", "star", "unstar", "delete", "webhook_push"
-    status: Optional[str] = None
-    webhook_url: Optional[str] = None
-
-class WebhookPushResponse(BaseModel):
-    success: bool
-    sent_count: int
-    message: str
-
-
 class ApiConfigUpdate(BaseModel):
     provider_name: str
     api_key: str
@@ -92,19 +79,6 @@ class EvidenceOut(BaseModel):
     class Config:
         from_attributes = True
 
-# 7. Bulk CRM & Webhook Schemas
-class BulkCompanyActionRequest(BaseModel):
-    company_ids: list[str]
-    action: str # "update_status", "star", "unstar", "delete", "webhook_push"
-    status: Optional[str] = None
-    webhook_url: Optional[str] = None
-
-class WebhookPushResponse(BaseModel):
-    success: bool
-    sent_count: int
-    message: str
-
-
 class ManualReviewOut(BaseModel):
     id: str
     company_id: str
@@ -118,19 +92,6 @@ class ManualReviewOut(BaseModel):
 
     class Config:
         from_attributes = True
-
-# 7. Bulk CRM & Webhook Schemas
-class BulkCompanyActionRequest(BaseModel):
-    company_ids: list[str]
-    action: str # "update_status", "star", "unstar", "delete", "webhook_push"
-    status: Optional[str] = None
-    webhook_url: Optional[str] = None
-
-class WebhookPushResponse(BaseModel):
-    success: bool
-    sent_count: int
-    message: str
-
 
 class ManualReviewResolve(BaseModel):
     selected_value: str
@@ -150,19 +111,6 @@ class DecisionMakerOut(BaseModel):
 
     class Config:
         from_attributes = True
-
-# 7. Bulk CRM & Webhook Schemas
-class BulkCompanyActionRequest(BaseModel):
-    company_ids: list[str]
-    action: str # "update_status", "star", "unstar", "delete", "webhook_push"
-    status: Optional[str] = None
-    webhook_url: Optional[str] = None
-
-class WebhookPushResponse(BaseModel):
-    success: bool
-    sent_count: int
-    message: str
-
 
 # 5. Company Schemas
 class CompanyOut(BaseModel):
@@ -314,4 +262,63 @@ class WebhookPushResponse(BaseModel):
     sent_count: int
     message: str
 
+# 8. National Roofing Directory Schemas
+class NationalRoofingStartRequest(BaseModel):
+    state: str = "Texas"
+    state_code: str = "TX"
+    cities: list[str] = []
+    target_leads: int = 100
+    concurrency: int = 2
 
+class NationalRoofingJobOut(BaseModel):
+    id: str
+    name: str
+    state: str
+    state_code: str
+    status: str
+    current_city: str
+    current_stage: str
+    current_page: int
+    city_pages_discovered: int
+    city_pages_completed: int
+    pagination_pages_visited: int
+    profile_urls_discovered: int
+    unique_profiles_count: int
+    profiles_processed: int
+    profiles_remaining: int
+    duplicate_count: int
+    emails_found: int
+    gmail_found: int
+    phones_found: int
+    websites_found: int
+    failed_profiles_count: int
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class NationalRoofingLeadOut(BaseModel):
+    id: str
+    name: str
+    owner_name: str
+    trades: str
+    city: str
+    state: str
+    zip_code: str
+    address: str
+    phone: str
+    email: str
+    gmail_address: str
+    website: str
+    profile_url: str
+    website_status: str
+    verification_status: str
+
+class NationalRoofingListResponse(BaseModel):
+    job: Optional[NationalRoofingJobOut] = None
+    leads: list[NationalRoofingLeadOut]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
