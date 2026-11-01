@@ -71,3 +71,4 @@ class LeadScorer:
         reason_summary = " • ".join(reasons) if reasons else "Base discovery score"
 
         return final_score, reason_summary
+

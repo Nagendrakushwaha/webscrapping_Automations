@@ -24,6 +24,8 @@ class DiscoveredLead:
     provider_place_id: str = ""
     rating: Optional[float] = None
     reviews_count: Optional[int] = None
+    directory_profile_url: str = ""
+    directory_description: str = ""
     raw_metadata: dict[str, Any] = field(default_factory=dict)
 
 class BaseDiscoveryAdapter(ABC):
@@ -55,3 +57,4 @@ class BaseDiscoveryAdapter(ABC):
         Discovers businesses matching criteria synchronously.
         """
         pass
+

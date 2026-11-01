@@ -352,12 +352,13 @@ def export_automation_to_excel(auto_job: AutomationJob, companies: list[Company]
         "Business Email", "Email Status", "Mailbox Provider",
         "Business Phone", "Phone Line Type", "Personal Email", "Personal Phone",
         "Personal LinkedIn", "Business LinkedIn", "Instagram", "Facebook",
-        "Discovery Provider", "Verification Status", "Personalized Outreach Pitch"
+        "Discovery Provider", "Directory Profile URL", "Directory Description", "Verification Status", "Personalized Outreach Pitch"
     ]
 
     def create_lead_row(c: Company) -> list[Any]:
+        lead_id = c.original_id or (c.id[:8] if c.id else "LEAD")
         return [
-            c.original_id or c.id[:8],
+            lead_id,
             c.official_name or c.original_name,
             c.trades or c.original_trades,
             c.lead_score or 0,
@@ -393,6 +394,8 @@ def export_automation_to_excel(auto_job: AutomationJob, companies: list[Company]
             c.business_instagram or "N/A",
             c.business_facebook or "N/A",
             c.discovery_provider or "Automated",
+            c.directory_profile_url or "N/A",
+            c.directory_description or "N/A",
             c.overall_verification_status or "Unverified",
             c.ai_personalized_pitch or "N/A"
         ]
@@ -485,8 +488,9 @@ def export_automation_to_csv(auto_job: AutomationJob, companies: list[Company]) 
     """Exports automation discovered leads directly to CSV."""
     data = []
     for c in companies:
+        lead_id = c.original_id or (c.id[:8] if c.id else "LEAD")
         data.append({
-            "Lead ID": c.original_id or c.id[:8],
+            "Lead ID": lead_id,
             "Company Name": c.official_name or c.original_name,
             "Industry": c.trades or c.original_trades,
             "Opportunity Score": c.lead_score or 0,
@@ -519,6 +523,8 @@ def export_automation_to_csv(auto_job: AutomationJob, companies: list[Company]) 
             "Instagram": c.business_instagram or "N/A",
             "Facebook": c.business_facebook or "N/A",
             "Provider": c.discovery_provider or "Automated",
+            "Directory Profile URL": c.directory_profile_url or "N/A",
+            "Directory Description": c.directory_description or "N/A",
             "Verification Status": c.overall_verification_status or "Unverified",
             "Personalized Pitch": c.ai_personalized_pitch or "N/A"
         })

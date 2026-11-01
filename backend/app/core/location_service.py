@@ -84,6 +84,11 @@ class LocationService:
         ]
 
     @staticmethod
+    def get_cities_for_state(session: Session, state_abbr: str) -> list[dict[str, Any]]:
+        """Convenience method to return all cities for a single state."""
+        return LocationService.get_cities_for_states(session, [state_abbr])
+
+    @staticmethod
     def get_cities_for_states(session: Session, state_abbrs: list[str]) -> list[dict[str, Any]]:
         """Returns all cities across one or multiple states."""
         clean_abbrs = [s.upper().strip() for s in state_abbrs if s]

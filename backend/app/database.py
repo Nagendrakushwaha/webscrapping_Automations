@@ -1,12 +1,26 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import declarative_base, sessionmaker
 from .config import settings
 
 engine = create_engine(
     settings.SYNC_DATABASE_URL,
-    connect_args={"check_same_thread": False},
+    connect_args={"check_same_thread": False, "timeout": 30},
     echo=False
 )
+
+# Enable SQLite Write-Ahead Logging (WAL) and performance optimizations for concurrent access
+@event.listens_for(engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA foreign_keys=ON")
+    except Exception:
+        pass
+    finally:
+        cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # Keep aliases for backwards compatibility
@@ -24,7 +38,7 @@ def get_db():
 def init_db():
     """
     Initializes all database tables, auto-migrates missing columns,
-    and seeds official US Census geographic data.
+    recovers interrupted jobs, and seeds official US Census geographic data.
     """
     from . import models
     Base.metadata.create_all(bind=engine)
@@ -42,6 +56,19 @@ def init_db():
                         conn.commit()
                     except Exception:
                         pass
+    except Exception:
+        pass
+
+    # Auto-recover interrupted jobs from server reboot
+    try:
+        with engine.connect() as conn:
+            conn.exec_driver_sql(
+                "UPDATE automation_jobs SET status='paused', current_stage='Interrupted by server restart. Click Resume to continue.' WHERE status='running'"
+            )
+            conn.exec_driver_sql(
+                "UPDATE jobs SET status='paused', current_stage='Interrupted by server restart. Click Resume to continue.' WHERE status='processing'"
+            )
+            conn.commit()
     except Exception:
         pass
 

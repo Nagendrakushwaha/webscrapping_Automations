@@ -390,6 +390,11 @@ def seed_us_locations(session: Session) -> dict[str, int]:
     Populates US States and Cities database tables if not already present.
     Ensures expandable and updateable US Census dataset.
     """
+    # Fast path if already seeded
+    state_count = session.query(USState).count()
+    if state_count >= 50:
+        return {"states_added": 0, "cities_added": 0}
+
     states_added = 0
     cities_added = 0
 

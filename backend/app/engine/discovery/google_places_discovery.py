@@ -111,3 +111,4 @@ class GooglePlacesDiscoveryAdapter(BaseDiscoveryAdapter):
                         break
 
         return leads
+

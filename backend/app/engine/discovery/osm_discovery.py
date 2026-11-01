@@ -127,3 +127,4 @@ class OpenStreetMapDiscoveryAdapter(BaseDiscoveryAdapter):
             pass
 
         return leads
+

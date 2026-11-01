@@ -71,6 +71,7 @@ def start_automation(
     }
 
 @router.get("/jobs")
+@router.get("/history")
 def list_automation_jobs(
     limit: int = 20,
     db: Session = Depends(get_db)
@@ -98,13 +99,21 @@ def list_automation_jobs(
             "verified_emails_count": j.verified_emails_count,
             "failed_count": j.failed_count,
             "job_id": j.job_id,
+            "search_config": json.loads(j.search_config_json or "{}"),
+            "discovered_count": j.total_discovered,
+            "enriched_count": j.total_enriched,
+            "target_leads": j.total_target,
+            "progress_percentage": int((j.total_enriched / j.total_target * 100)) if j.total_target > 0 else 0,
+            "decision_makers_found": j.total_enriched,
+            "verified_emails_found": j.verified_emails_count,
             "start_time": j.start_time.isoformat() if j.start_time else None,
             "end_time": j.end_time.isoformat() if j.end_time else None,
             "created_at": j.created_at.isoformat() if j.created_at else None
         })
-    return results
+    return {"history": results, "jobs": results, "total": len(results)}
 
 @router.get("/jobs/{job_id}")
+@router.get("/{job_id}")
 def get_automation_job(
     job_id: str,
     db: Session = Depends(get_db)
@@ -126,11 +135,17 @@ def get_automation_job(
         "current_industry": j.current_industry,
         "current_provider": j.current_provider,
         "total_target": j.total_target,
+        "target_leads": j.total_target,
         "total_discovered": j.total_discovered,
+        "discovered_count": j.total_discovered,
         "unique_discovered": j.unique_discovered,
         "duplicate_count": j.duplicate_count,
         "total_enriched": j.total_enriched,
+        "enriched_count": j.total_enriched,
+        "progress_percentage": int((j.total_enriched / j.total_target * 100)) if j.total_target > 0 else 0,
         "verified_emails_count": j.verified_emails_count,
+        "verified_emails_found": j.verified_emails_count,
+        "decision_makers_found": j.total_enriched,
         "failed_count": j.failed_count,
         "job_id": j.job_id,
         "search_config": json.loads(j.search_config_json or "{}"),
@@ -175,7 +190,7 @@ def control_automation_job(
         j.current_stage = "Automation Stopped by User"
         j.end_time = datetime.utcnow()
         db.commit()
-    elif action == "retry":
+    elif action == "retry" or action == "retry-failed":
         new_worker = AutomationWorker(automation_id=job_id, db_session_factory=SessionLocal)
         background_tasks.add_task(new_worker.run_sync)
         j.status = "running"
@@ -186,7 +201,24 @@ def control_automation_job(
 
     return {"success": True, "job_id": job_id, "status": j.status, "action": action}
 
+@router.post("/{job_id}/pause")
+def pause_automation(job_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    return control_automation_job(job_id, ControlRequest(action="pause"), background_tasks, db)
+
+@router.post("/{job_id}/resume")
+def resume_automation(job_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    return control_automation_job(job_id, ControlRequest(action="resume"), background_tasks, db)
+
+@router.post("/{job_id}/stop")
+def stop_automation(job_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    return control_automation_job(job_id, ControlRequest(action="stop"), background_tasks, db)
+
+@router.post("/{job_id}/retry-failed")
+def retry_failed_automation(job_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    return control_automation_job(job_id, ControlRequest(action="retry"), background_tasks, db)
+
 @router.get("/jobs/{job_id}/leads")
+@router.get("/{job_id}/leads")
 def get_automation_leads(
     job_id: str,
     page: int = Query(1, ge=1),
@@ -254,10 +286,15 @@ def get_automation_leads(
                 "redesign_opportunity": c.redesign_opportunity,
                 "lead_score": c.lead_score,
                 "lead_score_reason": c.lead_score_reason,
+                "lead_status": c.lead_status or "New",
+                "is_starred": bool(c.is_starred),
+                "website_screenshot_url": c.website_screenshot_url or "",
                 "ai_personalized_pitch": c.ai_personalized_pitch,
                 "confidence_score": c.overall_confidence_score,
                 "verification_status": c.overall_verification_status,
                 "distance_miles": c.distance_from_center_miles,
+                "directory_profile_url": c.directory_profile_url,
+                "directory_description": c.directory_description,
                 "provider": c.discovery_provider
             }
             for c in leads

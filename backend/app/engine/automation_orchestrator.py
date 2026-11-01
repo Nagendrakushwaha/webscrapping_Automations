@@ -91,8 +91,9 @@ class AutomationWorker:
                         })
 
         # 2. Initialize Business Discovery Engine
+        enabled_providers = config.get("providers") or ["the_roofing_list", "openstreetmap", "search_engines", "google_places"]
         with self.session_factory() as session:
-            discovery_engine = BusinessDiscoveryEngine(session=session)
+            discovery_engine = BusinessDiscoveryEngine(session=session, enabled_providers=enabled_providers)
 
         def on_discovery_progress(prog_data: dict[str, Any]):
             with self.session_factory() as session:
@@ -164,6 +165,9 @@ class AutomationWorker:
                     distance_from_center_miles=lead.distance_miles,
                     google_places_id=lead.provider_place_id,
                     discovery_provider=lead.provider,
+                    directory_profile_url=lead.directory_profile_url,
+                    directory_description=lead.directory_description,
+                    business_description=lead.directory_description or "",
                     overall_verification_status="Unverified"
                 )
                 session.add(comp)
@@ -231,3 +235,4 @@ class AutomationWorker:
                 enricher._refresh_job_statistics(session)
 
         ACTIVE_AUTOMATIONS.pop(self.automation_id, None)
+

@@ -85,11 +85,16 @@ class Company(Base):
     distance_from_center_miles = Column(Float, default=0.0)
     google_places_id = Column(String, default="")
     discovery_provider = Column(String, default="")
+    directory_profile_url = Column(String, default="")
+    directory_description = Column(Text, default="")
     automation_id = Column(String, default="")
 
     # Lead Opportunity Scoring (0-100) for Tex Web Solutions
     lead_score = Column(Integer, default=0)
     lead_score_reason = Column(Text, default="")
+    lead_status = Column(String, default="New") # New, Contacted, Pitched, Replied, Meeting Booked, Closed, Not Interested
+    is_starred = Column(Boolean, default=False)
+    website_screenshot_url = Column(String, default="")
 
     # Agency & Tech Stack Intelligence (Tex Web Solutions)
     tech_stack_cms = Column(String, default="Custom / Unknown")

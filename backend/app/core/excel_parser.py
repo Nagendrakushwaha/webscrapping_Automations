@@ -13,6 +13,7 @@ STANDARD_COLUMNS = {
     "state": ["state", "province", "st", "region"],
     "phone": ["phone", "telephone", "phone_number", "tel", "mobile", "contact_number"],
     "webssite url": ["webssite url", "website url", "website", "url", "domain", "company_website", "web"],
+    "website_url": ["website url", "webssite url", "website", "url", "domain", "company_website", "web"],
     "claimed": ["claimed", "is_claimed", "claim_status", "verified_listing"]
 }
 
@@ -44,6 +45,12 @@ def detect_column_mappings(file_headers: list[str]) -> dict[str, str]:
                 if std_field in norm_h or any(c in norm_h for c in candidates):
                     mappings[std_field] = original_h
                     break
+
+    # Synchronize website aliases
+    if "webssite url" in mappings and "website_url" not in mappings:
+        mappings["website_url"] = mappings["webssite url"]
+    elif "website_url" in mappings and "webssite url" not in mappings:
+        mappings["webssite url"] = mappings["website_url"]
 
     return mappings
 
@@ -88,6 +95,7 @@ def parse_and_preview(file_path: Path, filename: str) -> dict[str, Any]:
         "filename": filename,
         "total_rows": total_rows,
         "headers": headers,
+        "original_headers": headers,
         "preview_rows": preview_rows,
         "detected_mappings": detected_mappings,
         "duplicate_count": duplicate_count
@@ -112,15 +120,30 @@ def read_all_companies(file_path: Path, mappings: dict[str, str]) -> list[dict[s
     for idx, row in df.iterrows():
         raw_dict = {k: ("" if pd.isna(v) else str(v).strip()) for k, v in row.items()}
         
-        # Extract according to mappings
-        orig_id = raw_dict.get(mappings.get("id", ""), "").strip() or f"lead_{idx+1}"
-        orig_name = raw_dict.get(mappings.get("name", ""), "").strip()
-        orig_trades = raw_dict.get(mappings.get("trades", ""), "").strip()
-        orig_city = raw_dict.get(mappings.get("city", ""), "").strip()
-        orig_state = raw_dict.get(mappings.get("state", ""), "").strip()
-        orig_phone = raw_dict.get(mappings.get("phone", ""), "").strip()
-        orig_website = raw_dict.get(mappings.get("webssite url", ""), "").strip()
-        orig_claimed = raw_dict.get(mappings.get("claimed", ""), "").strip()
+        # Extract according to mappings with fallback aliases
+        orig_id_col = mappings.get("id") or mappings.get("business_id") or mappings.get("lead_id") or ""
+        orig_id = raw_dict.get(orig_id_col, "").strip() or f"lead_{idx+1}"
+
+        orig_name_col = mappings.get("name") or mappings.get("company_name") or ""
+        orig_name = raw_dict.get(orig_name_col, "").strip()
+
+        orig_trades_col = mappings.get("trades") or mappings.get("industry") or mappings.get("services") or ""
+        orig_trades = raw_dict.get(orig_trades_col, "").strip()
+
+        orig_city_col = mappings.get("city") or ""
+        orig_city = raw_dict.get(orig_city_col, "").strip()
+
+        orig_state_col = mappings.get("state") or ""
+        orig_state = raw_dict.get(orig_state_col, "").strip()
+
+        orig_phone_col = mappings.get("phone") or mappings.get("phone_number") or ""
+        orig_phone = raw_dict.get(orig_phone_col, "").strip()
+
+        orig_website_col = mappings.get("webssite url") or mappings.get("website_url") or mappings.get("website") or mappings.get("url") or ""
+        orig_website = raw_dict.get(orig_website_col, "").strip()
+
+        orig_claimed_col = mappings.get("claimed") or mappings.get("is_claimed") or ""
+        orig_claimed = raw_dict.get(orig_claimed_col, "").strip()
 
         companies.append({
             "original_id": orig_id,

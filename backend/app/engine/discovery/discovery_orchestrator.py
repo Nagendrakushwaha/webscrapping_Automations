@@ -6,6 +6,7 @@ from .deduplicator import LeadDeduplicator
 from .osm_discovery import OpenStreetMapDiscoveryAdapter
 from .google_places_discovery import GooglePlacesDiscoveryAdapter
 from .search_engine_discovery import SearchEngineDiscoveryAdapter
+from .roofing_list_discovery import TheRoofingListDiscoveryAdapter, PaginationProgress
 from ...models import ApiConfig
 
 class BusinessDiscoveryEngine:
@@ -14,17 +15,31 @@ class BusinessDiscoveryEngine:
     Executes modular business discovery across all enabled providers, performs deduplication,
     enforces radius filtering, and returns qualified B2B leads.
     """
-    def __init__(self, session: Optional[Session] = None):
+    def __init__(self, session: Optional[Session] = None, enabled_providers: Optional[list[str]] = None):
         self.adapters: list[BaseDiscoveryAdapter] = []
         self.deduplicator = LeadDeduplicator()
 
-        # Always include high-accuracy public OpenStreetMap & Search Engine adapters
+        # 1. Specialized Trade Adapters
+        self.roofing_list_adapter = TheRoofingListDiscoveryAdapter()
+        # 2. General Public Geospatial & Search Adapters
         self.osm_adapter = OpenStreetMapDiscoveryAdapter()
         self.search_adapter = SearchEngineDiscoveryAdapter()
         self.google_adapter = GooglePlacesDiscoveryAdapter()
 
-        self.adapters.append(self.osm_adapter)
-        self.adapters.append(self.search_adapter)
+        # Add adapters based on selection or defaults
+        self.enabled_providers = set(enabled_providers) if enabled_providers else None
+
+        # Add The Roofing List as primary specialized directory
+        if not self.enabled_providers or "the_roofing_list" in self.enabled_providers or "roofing_list" in self.enabled_providers:
+            self.adapters.append(self.roofing_list_adapter)
+
+        # Add OpenStreetMap public geospatial adapter
+        if not self.enabled_providers or "openstreetmap" in self.enabled_providers or "osm" in self.enabled_providers:
+            self.adapters.append(self.osm_adapter)
+
+        # Add Public Search Engines adapter
+        if not self.enabled_providers or "search_engines" in self.enabled_providers or "search_engine" in self.enabled_providers:
+            self.adapters.append(self.search_adapter)
 
         if session:
             self._load_api_configs(session)
@@ -112,3 +127,4 @@ class BusinessDiscoveryEngine:
                             break
 
         return discovered_leads
+

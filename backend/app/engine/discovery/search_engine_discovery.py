@@ -108,3 +108,4 @@ class SearchEngineDiscoveryAdapter(BaseDiscoveryAdapter):
             pass
 
         return leads
+

@@ -12,8 +12,27 @@ async function apiFetch(endpoint, options = {}) {
   return res.json();
 }
 
+// Industry Presets
+const PRESET_INDUSTRIES = [
+  "Roofing Contractors",
+  "Commercial Roofing",
+  "Residential Roofing",
+  "Solar Energy Contractors",
+  "HVAC & Air Conditioning",
+  "Plumbing Contractors",
+  "Electrical Contractors",
+  "General Contractors",
+  "Landscaping & Tree Service",
+  "Painting Contractors",
+  "Remodeling & Home Improvement",
+  "Paving & Concrete"
+];
+
 function App() {
-  // State
+  // Navigation: 'dashboard' | 'enrichment' | 'automation' | 'history' | 'settings'
+  const [activeTab, setActiveTab] = useState("automation");
+
+  // Global & Jobs State
   const [jobs, setJobs] = useState([]);
   const [currentJob, setCurrentJob] = useState(null);
   const [companies, setCompanies] = useState([]);
@@ -21,94 +40,137 @@ function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [pageSize] = useState(15);
-  
-  // Filters
+
+  // Filters for standard lead management
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [hasOwnerFilter, setHasOwnerFilter] = useState(null);
   const [hasEmailFilter, setHasEmailFilter] = useState(null);
   const [hasLinkedInFilter, setHasLinkedInFilter] = useState(null);
 
-  // Modals & Drawer
-  const [uploadModalOpen, setUploadModalOpen] = useState(false);
-  const [apiModalOpen, setApiModalOpen] = useState(false);
+  // Drawer & Detail Modal
   const [selectedCompanyId, setSelectedCompanyId] = useState(null);
   const [companyDetail, setCompanyDetail] = useState(null);
-  const [drawerTab, setDrawerTab] = useState("mandatory"); // mandatory, evidence, pitch, identity, raw
+  const [drawerTab, setDrawerTab] = useState("mandatory"); // mandatory, pitch, evidence, audit, sos, raw
   const [pitchCopied, setPitchCopied] = useState(false);
 
-  const copyPitchToClipboard = (text) => {
-    if (!text) return;
-    navigator.clipboard.writeText(text);
-    setPitchCopied(true);
-    setTimeout(() => setPitchCopied(false), 2000);
-  };
-
-  // Upload & Mapping Flow
+  // Upload & Mapping Flow (Lead Enrichment)
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadFile, setUploadFile] = useState(null);
   const [previewData, setPreviewData] = useState(null);
   const [columnMappings, setColumnMappings] = useState({});
-  const [researchSettings, setResearchSettings] = useState({
-    industry: "Roofing",
-    country: "USA",
-    concurrency: 3,
-    batch_size: 50,
-    attempt_all_12_fields: true,
-    enabled_sources: ["website", "tavily", "google_places", "google_search", "bing", "brave", "duckduckgo", "apollo", "hunter"]
-  });
-  const [isUploading, setIsUploading] = useState(false);
+  const [uploadLoading, setUploadLoading] = useState(false);
 
-  // API Configs
+  // API Settings State
+  const [apiModalOpen, setApiModalOpen] = useState(false);
   const [apiConfigs, setApiConfigs] = useState([]);
-  const [testingProvider, setTestingProvider] = useState("");
+  const [testingProvider, setTestingProvider] = useState(null);
   const [testResult, setTestResult] = useState({});
 
-  // 1. Initial Load
+  // ------------------------------------------------------------------------
+  // AUTOMATED LEAD GENERATION STATE
+  // ------------------------------------------------------------------------
+  const [usStates, setUsStates] = useState([]);
+  const [availableCities, setAvailableCities] = useState([]);
+  const [loadingCities, setLoadingCities] = useState(false);
+  const [activeAutomationId, setActiveAutomationId] = useState(null);
+  const [activeAutomation, setActiveAutomation] = useState(null);
+  const [automationHistory, setAutomationHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [automationLeads, setAutomationLeads] = useState([]);
+  const [totalAutomationLeads, setTotalAutomationLeads] = useState(0);
+  const [automationLeadsPage, setAutomationLeadsPage] = useState(1);
+  const [automationFilterMinScore, setAutomationFilterMinScore] = useState(0);
+  const [automationFilterRedesignOnly, setAutomationFilterRedesignOnly] = useState(false);
+
+  // Search Configuration Form
+  const [searchMode, setSearchMode] = useState("cities"); // 'cities' | 'entire_state'
+  const [selectedStates, setSelectedStates] = useState(["TX"]);
+  const [selectedCities, setSelectedCities] = useState(["Houston"]);
+  const [citySearchInput, setCitySearchInput] = useState("");
+  const [searchRadius, setSearchRadius] = useState(50);
+  const [selectedIndustries, setSelectedIndustries] = useState(["Roofing Contractors"]);
+  const [customIndustryInput, setCustomIndustryInput] = useState("");
+  const [targetLeads, setTargetLeads] = useState(100);
+
+  // Lead Quality & Agency Opportunity Filters
+  const [agencyFilters, setAgencyFilters] = useState({
+    require_redesign_opportunity: false,
+    missing_website_only: false,
+    outdated_cms_only: false,
+    require_decision_maker: false,
+    require_email: false,
+    require_phone: false
+  });
+
+  // Providers Selection
+  const [discoveryProviders, setDiscoveryProviders] = useState({
+    the_roofing_list: true,
+    openstreetmap: true,
+    google_places: true,
+    search_engines: true
+  });
+
+  // Mini-CRM & Selection State
+  const [selectedLeadIds, setSelectedLeadIds] = useState([]);
+  const [webhookUrl, setWebhookUrl] = useState(() => localStorage.getItem("saved_webhook_url") || "");
+  const [proxyUrl, setProxyUrl] = useState(() => localStorage.getItem("saved_proxy_url") || "");
+
+  // ------------------------------------------------------------------------
+  // INITIAL DATA LOADING
+  // ------------------------------------------------------------------------
   useEffect(() => {
     loadJobs();
     loadApiConfigs();
-  }, []);
+    loadUSStates();
+    loadAutomationHistory();
 
-  // 2. Poll Active Job
-  useEffect(() => {
-    let interval = null;
-    if (currentJob && (currentJob.status === "processing" || currentJob.status === "pending")) {
-      interval = setInterval(async () => {
-        try {
-          const updated = await apiFetch(`/api/jobs/${currentJob.id}`);
-          setCurrentJob(updated);
-          loadCompanies(currentJob.id, currentPage);
-          if (updated.status === "completed" || updated.status === "stopped" || updated.status === "failed") {
-            clearInterval(interval);
-            loadJobs();
-          }
-        } catch (e) {
-          console.error(e);
-        }
-      }, 2500);
-    }
+    const interval = setInterval(() => {
+      // Background poll current job or active automation
+      if (currentJob && currentJob.status === "processing") {
+        refreshJobStatus(currentJob.id);
+      }
+      if (activeAutomationId) {
+        refreshAutomationStatus(activeAutomationId);
+      }
+    }, 2500);
+
     return () => clearInterval(interval);
-  }, [currentJob?.id, currentJob?.status, currentPage]);
+  }, [currentJob, activeAutomationId]);
 
-  // 3. Load Companies when filters or page change
+  // Load cities when selectedStates change
   useEffect(() => {
-    if (currentJob?.id) {
-      loadCompanies(currentJob.id, currentPage);
-    }
-  }, [currentJob?.id, currentPage, searchQuery, statusFilter, hasOwnerFilter, hasEmailFilter, hasLinkedInFilter]);
-
-  // Load Drawer details
-  useEffect(() => {
-    if (selectedCompanyId) {
-      apiFetch(`/api/companies/${selectedCompanyId}`)
-        .then(setCompanyDetail)
-        .catch(console.error);
+    if (selectedStates.length > 0) {
+      loadCitiesForStates(selectedStates);
     } else {
-      setCompanyDetail(null);
+      setAvailableCities([]);
+      setSelectedCities([]);
     }
-  }, [selectedCompanyId]);
+  }, [selectedStates]);
 
-  async function loadJobs() {
+  const loadUSStates = async () => {
+    try {
+      const data = await apiFetch("/api/locations/states");
+      setUsStates(data.states || []);
+    } catch (e) {
+      console.error("Failed to load US states:", e);
+    }
+  };
+
+  const loadCitiesForStates = async (states) => {
+    setLoadingCities(true);
+    try {
+      const query = states.map(s => `states=${encodeURIComponent(s)}`).join("&");
+      const data = await apiFetch(`/api/locations/cities/multi?${query}&limit=250`);
+      setAvailableCities(data.cities || []);
+    } catch (e) {
+      console.error("Failed to load cities:", e);
+    } finally {
+      setLoadingCities(false);
+    }
+  };
+
+  const loadJobs = async () => {
     try {
       const data = await apiFetch("/api/jobs");
       setJobs(data);
@@ -116,631 +178,1482 @@ function App() {
         setCurrentJob(data[0]);
       }
     } catch (e) {
-      console.error(e);
+      console.error("Failed to load jobs:", e);
     }
-  }
+  };
 
-  async function loadApiConfigs() {
+  const loadApiConfigs = async () => {
     try {
-      const data = await apiFetch("/api/settings");
+      const data = await apiFetch("/api/settings/api-keys");
       setApiConfigs(data);
     } catch (e) {
-      console.error(e);
+      console.error("Failed to load API keys:", e);
     }
-  }
+  };
 
-  async function loadCompanies(jobId, page = 1) {
+  const loadAutomationHistory = async () => {
+    setLoadingHistory(true);
     try {
-      let url = `/api/companies/job/${jobId}?page=${page}&limit=${pageSize}`;
-      if (searchQuery) url += `&q=${encodeURIComponent(searchQuery)}`;
+      const data = await apiFetch("/api/automation/history?limit=25");
+      setAutomationHistory(data.history || []);
+      if (!activeAutomationId && data.history && data.history.length > 0) {
+        // Find latest running or recent automation
+        const running = data.history.find(h => h.status === "RUNNING" || h.status === "PAUSED");
+        const target = running || data.history[0];
+        setActiveAutomationId(target.id);
+        setActiveAutomation(target);
+      }
+    } catch (e) {
+      console.error("Failed to load automation history:", e);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const refreshJobStatus = async (jobId) => {
+    try {
+      const data = await apiFetch(`/api/jobs/${jobId}`);
+      setCurrentJob(data);
+      if (data.status === "completed" || data.status === "failed") {
+        loadCompanies(jobId, currentPage);
+      }
+    } catch (e) {
+      console.error("Failed to poll job:", e);
+    }
+  };
+
+  const refreshAutomationStatus = async (automationId) => {
+    try {
+      const data = await apiFetch(`/api/automation/${automationId}`);
+      setActiveAutomation(data);
+      // Refresh lead table
+      loadAutomationLeads(automationId, automationLeadsPage);
+    } catch (e) {
+      console.error("Failed to refresh automation status:", e);
+    }
+  };
+
+  const loadAutomationLeads = async (automationId, page = 1) => {
+    if (!automationId) return;
+    try {
+      let url = `/api/automation/${automationId}/leads?page=${page}&page_size=20`;
+      if (automationFilterMinScore > 0) {
+        url += `&min_score=${automationFilterMinScore}`;
+      }
+      if (automationFilterRedesignOnly) {
+        url += `&redesign_only=true`;
+      }
+      const data = await apiFetch(url);
+      setAutomationLeads(data.leads || []);
+      setTotalAutomationLeads(data.total || 0);
+      setAutomationLeadsPage(page);
+    } catch (e) {
+      console.error("Failed to load automation leads:", e);
+    }
+  };
+
+  // ------------------------------------------------------------------------
+  // MINI-CRM & PIPELINE ACTIONS
+  // ------------------------------------------------------------------------
+  const handleToggleSelectLead = (id) => {
+    setSelectedLeadIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const handleSelectAllLeads = (e) => {
+    if (e.target.checked) {
+      setSelectedLeadIds(automationLeads.map(l => l.id));
+    } else {
+      setSelectedLeadIds([]);
+    }
+  };
+
+  const handleUpdateLeadStatus = async (companyId, newStatus) => {
+    try {
+      await apiFetch(`/api/companies/${companyId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus })
+      });
+      setAutomationLeads(prev => prev.map(l => l.id === companyId ? { ...l, lead_status: newStatus } : l));
+    } catch (e) {
+      alert("Error updating status: " + e.message);
+    }
+  };
+
+  const handleToggleStar = async (companyId) => {
+    try {
+      const res = await apiFetch(`/api/companies/${companyId}/star`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+      setAutomationLeads(prev => prev.map(l => l.id === companyId ? { ...l, is_starred: res.is_starred } : l));
+    } catch (e) {
+      console.error("Error toggling star:", e);
+    }
+  };
+
+  const handleBulkStatus = async (status) => {
+    if (selectedLeadIds.length === 0) return;
+    try {
+      await apiFetch("/api/companies/bulk-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ company_ids: selectedLeadIds, action: "update_status", status })
+      });
+      setAutomationLeads(prev => prev.map(l => selectedLeadIds.includes(l.id) ? { ...l, lead_status: status } : l));
+      setSelectedLeadIds([]);
+      alert(`Updated status to '${status}' for ${selectedLeadIds.length} leads.`);
+    } catch (e) {
+      alert("Bulk update error: " + e.message);
+    }
+  };
+
+  const handleBulkWebhookPush = async () => {
+    if (selectedLeadIds.length === 0) return;
+    let url = webhookUrl;
+    if (!url) {
+      url = prompt("Enter Webhook URL (Zapier, Make, n8n, or CRM):");
+      if (!url) return;
+      setWebhookUrl(url);
+      localStorage.setItem("saved_webhook_url", url);
+    }
+    try {
+      const res = await apiFetch("/api/companies/bulk-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ company_ids: selectedLeadIds, action: "webhook_push", webhook_url: url })
+      });
+      alert(res.message);
+      setSelectedLeadIds([]);
+    } catch (e) {
+      alert("Webhook push error: " + e.message);
+    }
+  };
+
+  // ------------------------------------------------------------------------
+  // AUTOMATION CONTROLS
+  // ------------------------------------------------------------------------
+  const handleStartAutomation = async () => {
+    if (selectedStates.length === 0) {
+      alert("Please select at least one US State.");
+      return;
+    }
+    if (searchMode === "cities" && selectedCities.length === 0) {
+      alert("Please select at least one city or choose 'Entire State' search mode.");
+      return;
+    }
+    if (selectedIndustries.length === 0) {
+      alert("Please select at least one industry or trade.");
+      return;
+    }
+
+    const payload = {
+      search_mode: searchMode,
+      states: selectedStates,
+      cities: searchMode === "cities" ? selectedCities : [],
+      radius_miles: Number(searchRadius),
+      industries: selectedIndustries,
+      target_leads: Number(targetLeads),
+      providers: Object.keys(discoveryProviders).filter(k => discoveryProviders[k]),
+      filters: agencyFilters
+    };
+
+    try {
+      const res = await apiFetch("/api/automation/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      setActiveAutomationId(res.automation_id);
+      setActiveAutomation(res);
+      loadAutomationHistory();
+      alert(`Automated Lead Generation Started! Target: ${targetLeads} leads in ${selectedStates.join(", ")}`);
+    } catch (e) {
+      alert("Error starting automation: " + e.message);
+    }
+  };
+
+  const handlePauseAutomation = async () => {
+    if (!activeAutomationId) return;
+    try {
+      await apiFetch(`/api/automation/${activeAutomationId}/pause`, { method: "POST" });
+      refreshAutomationStatus(activeAutomationId);
+    } catch (e) {
+      alert("Error pausing: " + e.message);
+    }
+  };
+
+  const handleResumeAutomation = async () => {
+    if (!activeAutomationId) return;
+    try {
+      await apiFetch(`/api/automation/${activeAutomationId}/resume`, { method: "POST" });
+      refreshAutomationStatus(activeAutomationId);
+    } catch (e) {
+      alert("Error resuming: " + e.message);
+    }
+  };
+
+  const handleStopAutomation = async () => {
+    if (!activeAutomationId) return;
+    if (!confirm("Are you sure you want to stop this automation job?")) return;
+    try {
+      await apiFetch(`/api/automation/${activeAutomationId}/stop`, { method: "POST" });
+      refreshAutomationStatus(activeAutomationId);
+    } catch (e) {
+      alert("Error stopping: " + e.message);
+    }
+  };
+
+  const handleRetryFailed = async () => {
+    if (!activeAutomationId) return;
+    try {
+      await apiFetch(`/api/automation/${activeAutomationId}/retry-failed`, { method: "POST" });
+      refreshAutomationStatus(activeAutomationId);
+      alert("Retrying failed leads enrichment.");
+    } catch (e) {
+      alert("Error retrying: " + e.message);
+    }
+  };
+
+  // ------------------------------------------------------------------------
+  // COMPANY DETAIL MODAL / DRAWER
+  // ------------------------------------------------------------------------
+  const handleOpenCompanyDetail = async (companyId) => {
+    setSelectedCompanyId(companyId);
+    try {
+      const data = await apiFetch(`/api/companies/${companyId}`);
+      setCompanyDetail(data);
+      setDrawerTab("mandatory");
+    } catch (e) {
+      alert("Failed to load lead details: " + e.message);
+    }
+  };
+
+  // Copy helper
+  const copyPitchToClipboard = (text) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setPitchCopied(true);
+    setTimeout(() => setPitchCopied(false), 2000);
+  };
+
+  // Helper for Opportunity Score Badge
+  const renderScoreBadge = (score, reason) => {
+    let color = "bg-rose-950 text-rose-300 border-rose-800";
+    let label = "Low";
+    if (score >= 70) {
+      color = "bg-emerald-950 text-emerald-300 border-emerald-800";
+      label = "High Priority";
+    } else if (score >= 45) {
+      color = "bg-amber-950 text-amber-300 border-amber-800";
+      label = "Medium";
+    }
+    return (
+      <div className="flex items-center space-x-1.5" title={reason || `Opportunity Score: ${score}/100`}>
+        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold border ${color}`}>
+          {score}/100
+        </span>
+        <span className="text-[10px] text-slate-400 hidden xl:inline">{label}</span>
+      </div>
+    );
+  };
+
+  // ------------------------------------------------------------------------
+  // STANDARD ENRICHMENT UPLOAD FLOW
+  // ------------------------------------------------------------------------
+  const handleFileSelect = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploadFile(file);
+    setUploadLoading(true);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const data = await apiFetch("/api/jobs/preview", {
+        method: "POST",
+        body: formData
+      });
+      setPreviewData(data);
+      const mappings = { ...(data.detected_mappings || {}) };
+      // Normalize website_url
+      if (!mappings["website_url"] && mappings["webssite url"]) {
+        mappings["website_url"] = mappings["webssite url"];
+      }
+      setColumnMappings(mappings);
+    } catch (err) {
+      alert("Failed to parse file preview: " + err.message);
+      setUploadFile(null);
+    } finally {
+      setUploadLoading(false);
+      if (e.target) e.target.value = "";
+    }
+  };
+
+  const handleConfirmMappingAndStart = async () => {
+    if (!uploadFile) return;
+    setUploadLoading(true);
+
+    const formData = new FormData();
+    formData.append("file", uploadFile);
+    formData.append("column_mapping", JSON.stringify(columnMappings));
+
+    try {
+      const newJob = await apiFetch("/api/jobs/upload", {
+        method: "POST",
+        body: formData
+      });
+      setUploadModalOpen(false);
+      setUploadFile(null);
+      setPreviewData(null);
+      await loadJobs();
+      setCurrentJob(newJob);
+      setActiveTab("enrichment");
+      alert(`Job created with ${newJob.total_companies} companies! Starting automated research.`);
+    } catch (err) {
+      alert("Upload failed: " + err.message);
+    } finally {
+      setUploadLoading(false);
+    }
+  };
+
+  const loadCompanies = async (jobId, page = 1) => {
+    if (!jobId) return;
+    try {
+      let url = `/api/companies/job/${jobId}?page=${page}&page_size=${pageSize}`;
+      if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
       if (statusFilter !== "All") url += `&status=${encodeURIComponent(statusFilter)}`;
       if (hasOwnerFilter !== null) url += `&has_owner=${hasOwnerFilter}`;
       if (hasEmailFilter !== null) url += `&has_email=${hasEmailFilter}`;
       if (hasLinkedInFilter !== null) url += `&has_linkedin=${hasLinkedInFilter}`;
 
-      const res = await apiFetch(url);
-      setCompanies(res.items);
-      setTotalCompanies(res.total);
-      setTotalPages(res.total_pages);
+      const data = await apiFetch(url);
+      setCompanies(data.companies || []);
+      setTotalCompanies(data.total || 0);
+      setCurrentPage(data.page || 1);
+      setTotalPages(data.total_pages || 1);
     } catch (e) {
-      console.error(e);
+      console.error("Failed to load companies:", e);
     }
-  }
+  };
 
-  // --- Handlers ---
-  async function handleFileUpload(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    setUploadFile(file);
-    setIsUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
-
+  // API Key handlers
+  const handleSaveApiKey = async (provider, key) => {
     try {
-      const res = await fetch("/api/jobs/upload-preview", {
-        method: "POST",
-        body: formData
-      });
-      if (!res.ok) throw new Error("Upload preview failed");
-      const data = await res.json();
-      setPreviewData(data);
-      setColumnMappings(data.detected_mappings);
-    } catch (err) {
-      alert("Error parsing file: " + err.message);
-    } finally {
-      setIsUploading(false);
-    }
-  }
-
-  async function handleStartResearch() {
-    if (!previewData) return;
-    setIsUploading(true);
-    try {
-      const payload = {
-        file_id: previewData.file_id,
-        mappings: columnMappings,
-        settings: researchSettings
-      };
-      const newJob = await apiFetch("/api/jobs/start-research", {
+      await apiFetch("/api/settings/api-keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ provider_name: provider, api_key: key })
       });
-      setUploadModalOpen(false);
-      setPreviewData(null);
-      setCurrentJob(newJob);
-      loadJobs();
-      setCurrentPage(1);
-    } catch (err) {
-      alert("Error starting research: " + err.message);
-    } finally {
-      setIsUploading(false);
-    }
-  }
-
-  async function handleJobControl(action) {
-    if (!currentJob) return;
-    try {
-      const updated = await apiFetch(`/api/jobs/${currentJob.id}/control`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action })
-      });
-      setCurrentJob(updated);
-      loadJobs();
-    } catch (err) {
-      alert("Action failed: " + err.message);
-    }
-  }
-
-  async function handleSaveApiKey(providerName, apiKey, extraConfig = {}) {
-    try {
-      await apiFetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider_name: providerName,
-          api_key: apiKey,
-          extra_config: extraConfig,
-          is_enabled: true
-        })
-      });
+      alert(`API Key for ${provider} saved!`);
       loadApiConfigs();
-      alert(`API key for ${providerName} saved securely!`);
-    } catch (err) {
-      alert("Failed to save: " + err.message);
+    } catch (e) {
+      alert("Failed to save key: " + e.message);
     }
-  }
+  };
 
-  async function handleTestApi(providerName, apiKey) {
-    setTestingProvider(providerName);
-    setTestResult(prev => ({ ...prev, [providerName]: { testing: true } }));
+  const handleTestApi = async (provider, key) => {
+    setTestingProvider(provider);
     try {
-      const res = await apiFetch("/api/settings/test", {
+      const res = await apiFetch("/api/settings/test-connection", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider_name: providerName, api_key: apiKey })
+        body: JSON.stringify({ provider_name: provider, api_key: key })
       });
-      setTestResult(prev => ({ ...prev, [providerName]: { success: res.success, message: res.message } }));
-      loadApiConfigs();
-    } catch (err) {
-      setTestResult(prev => ({ ...prev, [providerName]: { success: false, message: err.message } }));
+      setTestResult(prev => ({ ...prev, [provider]: res }));
+    } catch (e) {
+      setTestResult(prev => ({ ...prev, [provider]: { success: false, message: e.message } }));
     } finally {
-      setTestingProvider("");
+      setTestingProvider(null);
     }
-  }
-
-  // Helper for confidence badge
-  function renderConfidenceBadge(score) {
-    let color = "bg-rose-900/60 text-rose-300 border-rose-700/60";
-    if (score >= 90) color = "bg-emerald-900/60 text-emerald-300 border-emerald-700/60";
-    else if (score >= 75) color = "bg-blue-900/60 text-blue-300 border-blue-700/60";
-    else if (score >= 50) color = "bg-amber-900/60 text-amber-300 border-amber-700/60";
-
-    return (
-      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${color}`}>
-        {score}%
-      </span>
-    );
-  }
-
-  function renderStatusBadge(status) {
-    let style = "bg-slate-800 text-slate-300 border-slate-700";
-    if (status === "Fully Verified" || status === "Found and Verified") style = "bg-emerald-950 text-emerald-400 border-emerald-800";
-    else if (status === "Partially Verified" || status === "Found but Unverified") style = "bg-blue-950 text-blue-400 border-blue-800";
-    else if (status === "Requires Manual Review" || status === "Conflicting Information") style = "bg-amber-950 text-amber-400 border-amber-800";
-    else if (status === "Not Found") style = "bg-slate-900 text-slate-500 border-slate-800";
-    else if (status === "Failed") style = "bg-rose-950 text-rose-400 border-rose-800";
-
-    return (
-      <span className={`px-2 py-0.5 text-xs rounded border font-medium ${style}`}>
-        {status}
-      </span>
-    );
-  }
+  };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100">
-      {/* 1. Header */}
-      <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-30 px-6 py-3.5 flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center font-black text-xl shadow-lg shadow-blue-500/20 text-white">
-            AI
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+      {/* ------------------------------------------------------------- */}
+      {/* HEADER / NAVIGATION                                          */}
+      {/* ------------------------------------------------------------- */}
+      <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-40 px-6 py-3.5 flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-500 to-cyan-400 flex items-center justify-center font-black text-xl text-white shadow-lg shadow-blue-500/20">
+            T
           </div>
           <div>
             <div className="flex items-center space-x-2">
               <h1 className="text-lg font-bold tracking-tight text-white">AI LEAD INTELLIGENCE</h1>
-              <span className="px-2 py-0.5 text-[10px] uppercase font-bold tracking-wider bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full">
-                v1.0 Production
+              <span className="text-[10px] bg-blue-500/20 text-blue-300 font-semibold px-2 py-0.5 rounded border border-blue-500/30">
+                PRO v2.0
               </span>
             </div>
             <p className="text-xs text-slate-400">
-              Developed for <span className="text-slate-200 font-semibold">Tex Web Solutions Pvt. Ltd.</span> &bull; Web Design &bull; SEO &bull; Digital Solutions
+              Tex Web Solutions Pvt. Ltd. &bull; Automated B2B Lead Engine
             </p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-3">
-          {/* Active Job Selector */}
-          {jobs.length > 0 && (
-            <select
-              value={currentJob?.id || ""}
-              onChange={(e) => {
-                const j = jobs.find(x => x.id === e.target.value);
-                setCurrentJob(j);
-                setCurrentPage(1);
-              }}
-              className="bg-slate-800 text-slate-200 text-xs rounded-lg px-3 py-2 border border-slate-700 focus:outline-none focus:border-blue-500"
-            >
-              {jobs.map(j => (
-                <option key={j.id} value={j.id}>
-                  {j.filename.replace(/^upload_[a-f0-9]+/, "File")} ({j.total_companies} leads) - {j.status.toUpperCase()}
-                </option>
-              ))}
-            </select>
-          )}
-
+        {/* Navigation Tabs */}
+        <nav className="flex items-center space-x-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
           <button
-            onClick={() => setApiModalOpen(true)}
-            className="flex items-center space-x-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+            onClick={() => setActiveTab("dashboard")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+              activeTab === "dashboard"
+                ? "bg-blue-600 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+            }`}
           >
-            <span>⚙️</span>
-            <span>API Settings</span>
-            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+            📊 Dashboard
           </button>
-
+          <button
+            onClick={() => setActiveTab("enrichment")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+              activeTab === "enrichment"
+                ? "bg-blue-600 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+            }`}
+          >
+            ⚡ Lead Enrichment
+          </button>
+          <button
+            onClick={() => setActiveTab("automation")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center space-x-1.5 ${
+              activeTab === "automation"
+                ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20"
+                : "text-slate-300 hover:text-white hover:bg-slate-900"
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>🚀 Automated Lead Generation</span>
+          </button>
           <button
             onClick={() => {
-              setPreviewData(null);
-              setUploadFile(null);
-              setUploadModalOpen(true);
+              setActiveTab("history");
+              loadAutomationHistory();
             }}
-            className="flex items-center space-x-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/30 transition"
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+              activeTab === "history"
+                ? "bg-blue-600 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+            }`}
           >
-            <span>⬆️ Upload Leads (XLSX / CSV)</span>
+            📜 Automation History
           </button>
-        </div>
+          <button
+            onClick={() => setApiModalOpen(true)}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+          >
+            ⚙️ API Settings
+          </button>
+        </nav>
       </header>
 
-      {/* 2. Main Content Area */}
-      <main className="flex-1 p-6 space-y-6 max-w-7xl mx-auto w-full">
-        {/* KPI Metrics Cards */}
-        {currentJob && (
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 shadow-sm">
-              <span className="text-[11px] font-medium text-slate-400">Total Leads</span>
-              <p className="text-xl font-bold text-white mt-1">{currentJob.total_companies}</p>
-            </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 shadow-sm">
-              <span className="text-[11px] font-medium text-slate-400">Processed</span>
-              <p className="text-xl font-bold text-blue-400 mt-1">{currentJob.processed_companies}</p>
-            </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 shadow-sm">
-              <span className="text-[11px] font-medium text-slate-400">Enriched</span>
-              <p className="text-xl font-bold text-cyan-400 mt-1">{currentJob.enriched_count}</p>
-            </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 shadow-sm">
-              <span className="text-[11px] font-medium text-slate-400">Fully Verified</span>
-              <p className="text-xl font-bold text-emerald-400 mt-1">{currentJob.fully_verified_count}</p>
-            </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 shadow-sm">
-              <span className="text-[11px] font-medium text-slate-400">Partially Verified</span>
-              <p className="text-xl font-bold text-amber-400 mt-1">{currentJob.partially_verified_count}</p>
-            </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 shadow-sm">
-              <span className="text-[11px] font-medium text-slate-400">Unverified</span>
-              <p className="text-xl font-bold text-slate-300 mt-1">{currentJob.unverified_count}</p>
-            </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 shadow-sm">
-              <span className="text-[11px] font-medium text-slate-400">Not Found</span>
-              <p className="text-xl font-bold text-slate-500 mt-1">{currentJob.not_found_count}</p>
-            </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 shadow-sm">
-              <span className="text-[11px] font-medium text-slate-400">Manual Review</span>
-              <p className="text-xl font-bold text-purple-400 mt-1">{currentJob.manual_review_count}</p>
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 1: AUTOMATED LEAD GENERATION (PRIMARY NEW MODULE)         */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === "automation" && (
+        <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6">
+          {/* Header Banner */}
+          <div className="bg-gradient-to-r from-slate-900 via-blue-950/40 to-slate-900 border border-slate-800 rounded-2xl p-6 relative overflow-hidden">
+            <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <span className="text-xs uppercase tracking-wider font-semibold text-blue-400">
+                  Targeted B2B Acquisition Module
+                </span>
+                <h2 className="text-2xl font-black text-white mt-1">
+                  Location-Based Automated Lead Discovery
+                </h2>
+                <p className="text-sm text-slate-400 mt-1 max-w-2xl">
+                  Select US States and Cities from the official US Census Bureau database. Discover local businesses via OpenStreetMap, Google Places, and search engines. Enriches decision-makers (Owner/CEO), emails, direct phone lines, tech stack, and Web Redesign Opportunity Scores automatically.
+                </p>
+              </div>
+
+              {/* Status / Quick Action */}
+              <div className="flex items-center space-x-3">
+                {activeAutomation && activeAutomation.status === "RUNNING" && (
+                  <div className="flex items-center space-x-2 bg-emerald-950/80 border border-emerald-700/60 text-emerald-300 px-3.5 py-2 rounded-xl text-xs font-semibold">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                    <span>RUNNING ({activeAutomation.discovered_count} found)</span>
+                  </div>
+                )}
+                {activeAutomation && activeAutomation.status === "PAUSED" && (
+                  <div className="flex items-center space-x-2 bg-amber-950/80 border border-amber-700/60 text-amber-300 px-3.5 py-2 rounded-xl text-xs font-semibold">
+                    <span>PAUSED</span>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        )}
 
-        {/* Live Progress Bar Banner */}
-        {currentJob && (
-          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex-1 w-full space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center space-x-2">
-                  <span className={`w-2.5 h-2.5 rounded-full ${
-                    currentJob.status === "processing" ? "bg-emerald-500 animate-ping" : 
-                    currentJob.status === "paused" ? "bg-amber-500" : "bg-slate-500"
-                  }`}></span>
-                  <span className="font-semibold text-slate-200 uppercase tracking-wider">
-                    Status: {currentJob.status}
+          {/* TWO COLUMN GRID: Configuration on Left (4 cols), Live Monitor on Right (8 cols) */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* LEFT COLUMN: Search & Filter Controls */}
+            <div className="lg:col-span-5 space-y-6">
+              {/* 1. Location Selection */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                    <span>📍 1. US Location Selection</span>
+                  </h3>
+                  <div className="flex items-center space-x-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800">
+                    <button
+                      onClick={() => setSearchMode("cities")}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded ${
+                        searchMode === "cities" ? "bg-blue-600 text-white" : "text-slate-400"
+                      }`}
+                    >
+                      Selected Cities
+                    </button>
+                    <button
+                      onClick={() => setSearchMode("entire_state")}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded ${
+                        searchMode === "entire_state" ? "bg-blue-600 text-white" : "text-slate-400"
+                      }`}
+                    >
+                      Entire State
+                    </button>
+                  </div>
+                </div>
+
+                {/* State Selection */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                    Target US State(s) ({usStates.length} Official States + DC)
+                  </label>
+                  <select
+                    value={selectedStates[0] || "TX"}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedStates([val]);
+                    }}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                  >
+                    {usStates.map((st) => (
+                      <option key={st.abbr} value={st.abbr}>
+                        {st.name} ({st.abbr}) — Capital: {st.capital}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Cities Multi-Select (When in 'cities' mode) */}
+                {searchMode === "cities" && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-medium text-slate-300">
+                        Cities in {selectedStates.join(", ")}
+                      </label>
+                      <button
+                        onClick={() => {
+                          const allNames = availableCities.map(c => c.city_name);
+                          setSelectedCities(allNames);
+                        }}
+                        className="text-[10px] text-blue-400 hover:underline"
+                      >
+                        Select All ({availableCities.length})
+                      </button>
+                    </div>
+
+                    {/* Filter search box for cities */}
+                    <input
+                      type="text"
+                      placeholder="Filter city list (e.g. Houston, Dallas)..."
+                      value={citySearchInput}
+                      onChange={(e) => setCitySearchInput(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+                    />
+
+                    {/* Scrollable City Checkboxes */}
+                    <div className="max-h-44 overflow-y-auto bg-slate-950 border border-slate-800 rounded-xl p-2.5 space-y-1.5 custom-scrollbar">
+                      {loadingCities ? (
+                        <div className="text-center py-4 text-xs text-slate-500">
+                          Loading Census cities...
+                        </div>
+                      ) : availableCities.length === 0 ? (
+                        <div className="text-center py-4 text-xs text-slate-500">
+                          No cities found for selected state.
+                        </div>
+                      ) : (
+                        availableCities
+                          .filter(c => c.city_name.toLowerCase().includes(citySearchInput.toLowerCase()))
+                          .map((city) => {
+                            const isChecked = selectedCities.includes(city.city_name);
+                            return (
+                              <label
+                                key={city.id}
+                                className={`flex items-center justify-between p-1.5 rounded-lg cursor-pointer text-xs transition ${
+                                  isChecked ? "bg-blue-950/40 text-blue-200" : "hover:bg-slate-900 text-slate-300"
+                                }`}
+                              >
+                                <div className="flex items-center space-x-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSelectedCities([...selectedCities, city.city_name]);
+                                      } else {
+                                        setSelectedCities(selectedCities.filter(c => c !== city.city_name));
+                                      }
+                                    }}
+                                    className="rounded border-slate-700 bg-slate-900 text-blue-600 focus:ring-0"
+                                  />
+                                  <span>{city.city_name}</span>
+                                </div>
+                                <span className="text-[10px] text-slate-500">
+                                  {city.population ? `${city.population.toLocaleString()} pop` : city.place_type}
+                                </span>
+                              </label>
+                            );
+                          })
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-400">
+                      Selected {selectedCities.length} {selectedCities.length === 1 ? "city" : "cities"}.
+                    </p>
+                  </div>
+                )}
+
+                {/* Geographical Radius Slider & Presets */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-medium text-slate-300">
+                      Search Radius: <span className="text-blue-400 font-bold">{searchRadius} miles</span>
+                    </label>
+                    <span className="text-[10px] text-slate-500">
+                      Auto zone-tiling active for &gt; 30mi
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="5"
+                    max="100"
+                    step="5"
+                    value={searchRadius}
+                    onChange={(e) => setSearchRadius(Number(e.target.value))}
+                    className="w-full accent-blue-500 cursor-pointer"
+                  />
+                  <div className="flex items-center justify-between mt-2">
+                    {[10, 25, 50, 75, 100].map((r) => (
+                      <button
+                        key={r}
+                        onClick={() => setSearchRadius(r)}
+                        className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                          searchRadius === r
+                            ? "bg-blue-600 border-blue-500 text-white"
+                            : "bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        {r} mi
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Industry & Trade Selection */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <h3 className="text-sm font-bold text-white">
+                    🏢 2. Industry & Trade Selection
+                  </h3>
+                  <span className="text-[10px] text-slate-400">
+                    {selectedIndustries.length} Selected
                   </span>
-                  {currentJob.current_company_name && (
-                    <span className="text-slate-400">
-                      &bull; Researching: <strong className="text-blue-400">{currentJob.current_company_name}</strong>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5">
+                  {PRESET_INDUSTRIES.map((ind) => {
+                    const isSelected = selectedIndustries.includes(ind);
+                    return (
+                      <button
+                        key={ind}
+                        onClick={() => {
+                          if (isSelected) {
+                            if (selectedIndustries.length > 1) {
+                              setSelectedIndustries(selectedIndustries.filter(i => i !== ind));
+                            }
+                          } else {
+                            setSelectedIndustries([...selectedIndustries, ind]);
+                          }
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition ${
+                          isSelected
+                            ? "bg-blue-600/20 border-blue-500 text-blue-200"
+                            : "bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700"
+                        }`}
+                      >
+                        {isSelected ? "✓ " : "+ "}
+                        {ind}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Custom Industry Input */}
+                <div className="flex items-center space-x-2 pt-2 border-t border-slate-800/80">
+                  <input
+                    type="text"
+                    placeholder="Add custom trade/industry..."
+                    value={customIndustryInput}
+                    onChange={(e) => setCustomIndustryInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && customIndustryInput.trim()) {
+                        setSelectedIndustries([...selectedIndustries, customIndustryInput.trim()]);
+                        setCustomIndustryInput("");
+                      }
+                    }}
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                  />
+                  <button
+                    onClick={() => {
+                      if (customIndustryInput.trim()) {
+                        setSelectedIndustries([...selectedIndustries, customIndustryInput.trim()]);
+                        setCustomIndustryInput("");
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-lg"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+
+              {/* 3. Lead Quantity & Agency Filters */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <h3 className="text-sm font-bold text-white border-b border-slate-800 pb-3">
+                  🎯 3. Lead Targets & Web Agency Filters
+                </h3>
+
+                {/* Target Count */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-medium text-slate-300">
+                      Target Leads: <span className="text-blue-400 font-bold">{targetLeads} leads</span>
+                    </label>
+                  </div>
+                  <input
+                    type="range"
+                    min="10"
+                    max="1000"
+                    step="25"
+                    value={targetLeads}
+                    onChange={(e) => setTargetLeads(Number(e.target.value))}
+                    className="w-full accent-blue-500 cursor-pointer"
+                  />
+                  <div className="flex items-center justify-between mt-2">
+                    {[50, 100, 250, 500, 1000].map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setTargetLeads(t)}
+                        className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                          targetLeads === t
+                            ? "bg-blue-600 border-blue-500 text-white"
+                            : "bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Agency-Specific Opportunity Checkboxes */}
+                <div className="space-y-2 pt-2 border-t border-slate-800/80">
+                  <span className="text-[11px] font-semibold text-slate-400 block uppercase tracking-wider">
+                    Tex Web Solutions Lead Filters:
+                  </span>
+
+                  <label className="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={agencyFilters.require_redesign_opportunity}
+                      onChange={(e) => setAgencyFilters({ ...agencyFilters, require_redesign_opportunity: e.target.checked })}
+                      className="rounded border-slate-700 bg-slate-950 text-blue-600 focus:ring-0"
+                    />
+                    <span>Highlight high-value Website Redesign opportunities</span>
+                  </label>
+
+                  <label className="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={agencyFilters.missing_website_only}
+                      onChange={(e) => setAgencyFilters({ ...agencyFilters, missing_website_only: e.target.checked })}
+                      className="rounded border-slate-700 bg-slate-950 text-blue-600 focus:ring-0"
+                    />
+                    <span>Prioritize businesses with NO website (100% Greenfield sale)</span>
+                  </label>
+
+                  <label className="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={agencyFilters.outdated_cms_only}
+                      onChange={(e) => setAgencyFilters({ ...agencyFilters, outdated_cms_only: e.target.checked })}
+                      className="rounded border-slate-700 bg-slate-950 text-blue-600 focus:ring-0"
+                    />
+                    <span>Target DIY Builders (Wix, Weebly, GoDaddy, Squarespace)</span>
+                  </label>
+                </div>
+
+                {/* 4. Lead Discovery Sources */}
+                <div className="pt-3 border-t border-slate-800 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-slate-400 block uppercase tracking-wider">
+                      Discovery Data Sources:
                     </span>
-                  )}
-                  {currentJob.current_stage && (
-                    <span className="px-2 py-0.5 text-[10px] rounded bg-slate-800 text-slate-300 border border-slate-700">
-                      {currentJob.current_stage}
+                    <span className="text-[10px] text-emerald-400 font-semibold bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800">
+                      Multi-Source
                     </span>
+                  </div>
+
+                  {/* The Roofing List (theroofinglist.com) */}
+                  <label className="flex items-start space-x-2.5 p-2 rounded-xl border border-blue-900/60 bg-blue-950/20 cursor-pointer hover:bg-blue-950/30 transition">
+                    <input
+                      type="checkbox"
+                      checked={discoveryProviders.the_roofing_list}
+                      onChange={(e) => setDiscoveryProviders({ ...discoveryProviders, the_roofing_list: e.target.checked })}
+                      className="mt-0.5 rounded border-slate-700 bg-slate-950 text-blue-600 focus:ring-0"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-1.5">
+                        <span className="text-xs font-bold text-white">The Roofing List</span>
+                        <span className="text-[9px] bg-blue-500/20 text-blue-300 font-bold px-1.5 py-0.2 rounded border border-blue-500/30">
+                          theroofinglist.com
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        US verified roofing directory. Multi-page pagination + company website validation.
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* OpenStreetMap */}
+                  <label className="flex items-start space-x-2.5 p-2 rounded-xl border border-slate-800 bg-slate-950/40 cursor-pointer hover:bg-slate-900 transition">
+                    <input
+                      type="checkbox"
+                      checked={discoveryProviders.openstreetmap}
+                      onChange={(e) => setDiscoveryProviders({ ...discoveryProviders, openstreetmap: e.target.checked })}
+                      className="mt-0.5 rounded border-slate-700 bg-slate-950 text-blue-600 focus:ring-0"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-1.5">
+                        <span className="text-xs font-bold text-slate-200">OpenStreetMap Overpass</span>
+                        <span className="text-[9px] text-emerald-400 font-semibold">Public Free</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Geographic business tags, point coordinates, and postal addresses.
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Public Search Engines */}
+                  <label className="flex items-start space-x-2.5 p-2 rounded-xl border border-slate-800 bg-slate-950/40 cursor-pointer hover:bg-slate-900 transition">
+                    <input
+                      type="checkbox"
+                      checked={discoveryProviders.search_engines}
+                      onChange={(e) => setDiscoveryProviders({ ...discoveryProviders, search_engines: e.target.checked })}
+                      className="mt-0.5 rounded border-slate-700 bg-slate-950 text-blue-600 focus:ring-0"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-1.5">
+                        <span className="text-xs font-bold text-slate-200">Public Search Engines</span>
+                        <span className="text-[9px] text-slate-500">DuckDuckGo / Bing</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Deep web searches for company websites and snippet contact lines.
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Google Places */}
+                  <label className="flex items-start space-x-2.5 p-2 rounded-xl border border-slate-800 bg-slate-950/40 cursor-pointer hover:bg-slate-900 transition">
+                    <input
+                      type="checkbox"
+                      checked={discoveryProviders.google_places}
+                      onChange={(e) => setDiscoveryProviders({ ...discoveryProviders, google_places: e.target.checked })}
+                      className="mt-0.5 rounded border-slate-700 bg-slate-950 text-blue-600 focus:ring-0"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-1.5">
+                        <span className="text-xs font-bold text-slate-200">Google Places API</span>
+                        <span className="text-[9px] text-slate-500">Optional API Key</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Local maps POI records, direct phones, and star ratings.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                {/* 5. Action Buttons */}
+                <div className="pt-3 border-t border-slate-800 flex flex-col gap-2">
+                  <button
+                    onClick={handleStartAutomation}
+                    disabled={activeAutomation && activeAutomation.status === "RUNNING"}
+                    className="w-full py-3 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg shadow-blue-500/25 transition disabled:opacity-50 flex items-center justify-center space-x-2"
+                  >
+                    <span>⚡ START AUTOMATED SEARCH</span>
+                  </button>
+
+                  {activeAutomation && (
+                    <div className="flex items-center space-x-2">
+                      {activeAutomation.status === "RUNNING" ? (
+                        <button
+                          onClick={handlePauseAutomation}
+                          className="flex-1 py-2 px-3 bg-amber-600/30 hover:bg-amber-600/40 text-amber-300 border border-amber-600/50 rounded-xl text-xs font-semibold transition"
+                        >
+                          ⏸ Pause
+                        </button>
+                      ) : activeAutomation.status === "PAUSED" ? (
+                        <button
+                          onClick={handleResumeAutomation}
+                          className="flex-1 py-2 px-3 bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-600/50 rounded-xl text-xs font-semibold transition"
+                        >
+                          ▶ Resume
+                        </button>
+                      ) : null}
+
+                      {(activeAutomation.status === "RUNNING" || activeAutomation.status === "PAUSED") && (
+                        <button
+                          onClick={handleStopAutomation}
+                          className="flex-1 py-2 px-3 bg-rose-600/30 hover:bg-rose-600/40 text-rose-300 border border-rose-600/50 rounded-xl text-xs font-semibold transition"
+                        >
+                          ⏹ Stop
+                        </button>
+                      )}
+
+                      {activeAutomation.failed_count > 0 && (
+                        <button
+                          onClick={handleRetryFailed}
+                          className="flex-1 py-2 px-3 bg-indigo-600/30 hover:bg-indigo-600/40 text-indigo-300 border border-indigo-600/50 rounded-xl text-xs font-semibold transition"
+                        >
+                          🔄 Retry Failed ({activeAutomation.failed_count})
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
-                <span className="font-bold text-blue-400">{currentJob.progress_percentage || 0}%</span>
-              </div>
-              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-                <div 
-                  className="bg-gradient-to-r from-blue-600 to-indigo-500 h-2 rounded-full transition-all duration-500" 
-                  style={{ width: `${currentJob.progress_percentage || 0}%` }}
-                ></div>
               </div>
             </div>
 
-            <div className="flex items-center space-x-2 shrink-0">
-              {currentJob.status === "processing" ? (
-                <button
-                  onClick={() => handleJobControl("pause")}
-                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-600/20 text-amber-300 border border-amber-600/40 hover:bg-amber-600/30 transition"
-                >
-                  ⏸ Pause
-                </button>
-              ) : currentJob.status === "paused" ? (
-                <button
-                  onClick={() => handleJobControl("resume")}
-                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-600/40 hover:bg-emerald-600/30 transition"
-                >
-                  ▶ Resume
-                </button>
-              ) : null}
+            {/* RIGHT COLUMN: Live Monitor & Discovered Leads Table */}
+            <div className="lg:col-span-7 space-y-6">
+              {/* Active Automation Progress Monitor */}
+              {activeAutomation ? (
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                          Active Search Session:
+                        </span>
+                        <span className="text-xs text-white font-mono bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                          {activeAutomation.id}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1">
+                        {activeAutomation.search_config?.industries?.join(", ")} in{" "}
+                        {activeAutomation.search_config?.states?.join(", ")} ({activeAutomation.search_config?.radius_miles}mi radius)
+                      </p>
+                    </div>
 
-              {currentJob.status === "processing" || currentJob.status === "paused" ? (
-                <button
-                  onClick={() => handleJobControl("stop")}
-                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-rose-600/20 text-rose-300 border border-rose-600/40 hover:bg-rose-600/30 transition"
-                >
-                  ⏹ Stop
-                </button>
-              ) : null}
+                    {/* Export Actions for this Automation */}
+                    <div className="flex items-center space-x-2">
+                      <a
+                        href={`/api/export/automation/${activeAutomation.id}/excel`}
+                        download
+                        className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow-sm"
+                      >
+                        <span>📗 Export 6-Sheet Excel</span>
+                      </a>
+                      <a
+                        href={`/api/export/automation/${activeAutomation.id}/csv`}
+                        download
+                        className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium transition"
+                      >
+                        📄 CSV
+                      </a>
+                    </div>
+                  </div>
 
-              {currentJob.failed_count > 0 && (
-                <button
-                  onClick={() => handleJobControl("retry_failed")}
-                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-purple-600/20 text-purple-300 border border-purple-600/40 hover:bg-purple-600/30 transition"
-                >
-                  🔄 Retry Failed ({currentJob.failed_count})
-                </button>
+                  {/* Progress Bar */}
+                  <div>
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <span className="font-semibold text-slate-300">
+                        Automation Completion: {activeAutomation.progress_percentage || 0}%
+                      </span>
+                      <span className="text-slate-400 font-mono">
+                        {activeAutomation.enriched_count || 0} / {activeAutomation.target_leads || 0} Leads Enriched
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-950 rounded-full h-3 overflow-hidden border border-slate-800">
+                      <div
+                        className="bg-gradient-to-r from-blue-600 to-indigo-500 h-full rounded-full transition-all duration-500 ease-out"
+                        style={{ width: `${Math.min(activeAutomation.progress_percentage || 0, 100)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  {/* Live KPI Metric Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+                    <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-center">
+                      <div className="text-xl font-black text-blue-400">
+                        {activeAutomation.discovered_count || 0}
+                      </div>
+                      <div className="text-[10px] uppercase font-semibold text-slate-500 mt-0.5">
+                        Discovered
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-center">
+                      <div className="text-xl font-black text-emerald-400">
+                        {activeAutomation.decision_makers_found || 0}
+                      </div>
+                      <div className="text-[10px] uppercase font-semibold text-slate-500 mt-0.5">
+                        Decision Makers
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-center">
+                      <div className="text-xl font-black text-cyan-400">
+                        {activeAutomation.verified_emails_found || 0}
+                      </div>
+                      <div className="text-[10px] uppercase font-semibold text-slate-500 mt-0.5">
+                        Verified Emails
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-center">
+                      <div className="text-xl font-black text-amber-400">
+                        {activeAutomation.redesign_opps_count || 0}
+                      </div>
+                      <div className="text-[10px] uppercase font-semibold text-slate-500 mt-0.5">
+                        Redesign Opps
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-blue-500/10 text-blue-400 flex items-center justify-center mx-auto text-xl">
+                    🚀
+                  </div>
+                  <h4 className="text-base font-bold text-white">No Active Automation Running</h4>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    Select your target US state, cities, and trades on the left, then click <strong>START AUTOMATED SEARCH</strong> to initiate autonomous discovery and 12-field enrichment.
+                  </p>
+                </div>
               )}
 
-              {/* Exports */}
-              <a
-                href={`/api/export/${currentJob.id}/excel`}
-                download
-                className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm flex items-center space-x-1.5 transition"
-              >
-                <span>📊 Export Excel</span>
-              </a>
-              <a
-                href={`/api/export/${currentJob.id}/csv`}
-                download
-                className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
-              >
-                <span>Export CSV</span>
-              </a>
+              {/* Discovered Leads Table */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                  <div className="flex items-center space-x-2">
+                    <h3 className="text-sm font-bold text-white">
+                      📋 Discovered & Enriched Leads ({totalAutomationLeads})
+                    </h3>
+                  </div>
+
+                  {/* Score & Redesign Filters */}
+                  <div className="flex items-center space-x-2">
+                    <select
+                      value={automationFilterMinScore}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setAutomationFilterMinScore(val);
+                        if (activeAutomationId) {
+                          loadAutomationLeads(activeAutomationId, 1);
+                        }
+                      }}
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-300 focus:outline-none"
+                    >
+                      <option value={0}>All Scores (0-100)</option>
+                      <option value={40}>Min Score 40+</option>
+                      <option value={60}>Min Score 60+</option>
+                      <option value={75}>High Priority (75+)</option>
+                    </select>
+
+                    <button
+                      onClick={() => {
+                        const next = !automationFilterRedesignOnly;
+                        setAutomationFilterRedesignOnly(next);
+                        if (activeAutomationId) {
+                          loadAutomationLeads(activeAutomationId, 1);
+                        }
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold border ${
+                        automationFilterRedesignOnly
+                          ? "bg-amber-600/30 border-amber-500 text-amber-200"
+                          : "bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      🎨 Redesign Opps
+                    </button>
+                  </div>
+                </div>
+
+                {/* Floating Bulk CRM & Action Bar */}
+                {selectedLeadIds.length > 0 && (
+                  <div className="bg-gradient-to-r from-blue-950 via-indigo-950 to-slate-900 border border-blue-600/80 p-3 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xl animate-in fade-in">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-black text-white bg-blue-600 px-2.5 py-0.5 rounded-full text-xs">
+                        {selectedLeadIds.length}
+                      </span>
+                      <span className="text-blue-200 font-semibold">prospects selected</span>
+                    </div>
+                    <div className="flex items-center flex-wrap gap-2">
+                      <select
+                        onChange={(e) => {
+                          if (e.target.value) handleBulkStatus(e.target.value);
+                          e.target.value = "";
+                        }}
+                        className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none"
+                      >
+                        <option value="">-- Bulk Set Pipeline Status --</option>
+                        <option value="New">Set: New Prospect</option>
+                        <option value="Pitched">Set: Pitched</option>
+                        <option value="Contacted">Set: Contacted</option>
+                        <option value="Replied">Set: Replied</option>
+                        <option value="Meeting Booked">Set: Meeting Booked</option>
+                        <option value="Closed">Set: Closed / Won</option>
+                        <option value="Not Interested">Set: Not Interested</option>
+                      </select>
+                      <button
+                        onClick={handleBulkWebhookPush}
+                        className="px-3 py-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg font-bold flex items-center space-x-1 shadow-sm"
+                      >
+                        <span>🚀 Push to Webhook / CRM</span>
+                      </button>
+                      <button
+                        onClick={() => setSelectedLeadIds([])}
+                        className="px-2.5 py-1 bg-slate-800 text-slate-300 rounded-lg hover:text-white"
+                      >
+                        Deselect
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Table */}
+                <div className="overflow-x-auto custom-scrollbar">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400 uppercase text-[10px] tracking-wider">
+                        <th className="py-2.5 px-3 w-8">
+                          <input
+                            type="checkbox"
+                            checked={automationLeads.length > 0 && selectedLeadIds.length === automationLeads.length}
+                            onChange={handleSelectAllLeads}
+                            className="rounded border-slate-700 bg-slate-950 text-blue-600 focus:ring-0"
+                          />
+                        </th>
+                        <th className="py-2.5 px-2 w-8 text-center">★</th>
+                        <th className="py-2.5 px-3">Company</th>
+                        <th className="py-2.5 px-3">Location</th>
+                        <th className="py-2.5 px-3">Lead Score</th>
+                        <th className="py-2.5 px-3">Sales Pipeline</th>
+                        <th className="py-2.5 px-3">Decision Maker</th>
+                        <th className="py-2.5 px-3">Contact Info</th>
+                        <th className="py-2.5 px-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {automationLeads.length === 0 ? (
+                        <tr>
+                          <td colSpan={9} className="py-8 text-center text-slate-500">
+                            {activeAutomationId ? "No leads matching criteria yet." : "Start an automation session to discover leads."}
+                          </td>
+                        </tr>
+                      ) : (
+                        automationLeads.map((company) => {
+                          const primaryDM = company.owner_name || company.ceo_name || company.founder_name;
+                          const primaryDMTitle = company.owner_name ? "Owner" : company.ceo_name ? "CEO" : "Founder";
+
+                          return (
+                            <tr key={company.id} className="hover:bg-slate-800/40 transition">
+                              <td className="py-3 px-3">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedLeadIds.includes(company.id)}
+                                  onChange={() => handleToggleSelectLead(company.id)}
+                                  className="rounded border-slate-700 bg-slate-950 text-blue-600 focus:ring-0"
+                                />
+                              </td>
+
+                              <td className="py-3 px-2 text-center">
+                                <button
+                                  onClick={() => handleToggleStar(company.id)}
+                                  className={`text-base font-bold transition ${
+                                    company.is_starred ? "text-amber-400 scale-110" : "text-slate-600 hover:text-slate-400"
+                                  }`}
+                                  title={company.is_starred ? "Starred Prospect" : "Star Prospect"}
+                                >
+                                  {company.is_starred ? "★" : "☆"}
+                                </button>
+                              </td>
+
+                              <td className="py-3 px-3">
+                                <div className="font-bold text-white text-xs">{company.name}</div>
+                                <div className="text-[11px] text-slate-400 truncate max-w-[190px]">
+                                  {(company.website && company.website !== "N/A") || (company.website_url && company.website_url !== "N/A") ? (
+                                    <a
+                                      href={(company.website || company.website_url).startsWith("http") ? (company.website || company.website_url) : `https://${company.website || company.website_url}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-blue-400 hover:underline"
+                                    >
+                                      {(company.website || company.website_url).replace(/^https?:\/\/(www\.)?/, "")}
+                                    </a>
+                                  ) : (
+                                    <span className="text-rose-400 font-semibold text-[10px]">No Verified Website</span>
+                                  )}
+                                </div>
+                                {company.directory_profile_url && (
+                                  <div className="mt-0.5">
+                                    <a
+                                      href={company.directory_profile_url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-[10px] text-indigo-400 hover:underline flex items-center space-x-1"
+                                    >
+                                      <span>The Roofing List Profile ↗</span>
+                                    </a>
+                                  </div>
+                                )}
+                              </td>
+
+                              <td className="py-3 px-3">
+                                <div className="text-slate-200">
+                                  {company.city}, {company.state}
+                                </div>
+                                {company.distance_from_center_miles != null && (
+                                  <div className="text-[10px] text-slate-500">
+                                    {company.distance_from_center_miles.toFixed(1)} mi away
+                                  </div>
+                                )}
+                              </td>
+
+                              <td className="py-3 px-3">
+                                {renderScoreBadge(company.lead_score || 0, company.lead_score_reason)}
+                              </td>
+
+                              <td className="py-3 px-3">
+                                <select
+                                  value={company.lead_status || "New"}
+                                  onChange={(e) => handleUpdateLeadStatus(company.id, e.target.value)}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold border focus:outline-none cursor-pointer ${
+                                    company.lead_status === "Meeting Booked" || company.lead_status === "Closed"
+                                      ? "bg-emerald-950 text-emerald-300 border-emerald-800"
+                                      : company.lead_status === "Pitched" || company.lead_status === "Replied"
+                                      ? "bg-purple-950 text-purple-300 border-purple-800"
+                                      : company.lead_status === "Contacted"
+                                      ? "bg-blue-950 text-blue-300 border-blue-800"
+                                      : "bg-slate-950 text-slate-400 border-slate-800"
+                                  }`}
+                                >
+                                  <option value="New">New</option>
+                                  <option value="Contacted">Contacted</option>
+                                  <option value="Pitched">Pitched</option>
+                                  <option value="Replied">Replied</option>
+                                  <option value="Meeting Booked">Meeting Booked</option>
+                                  <option value="Closed">Closed / Won</option>
+                                  <option value="Not Interested">Not Interested</option>
+                                </select>
+                              </td>
+
+                              <td className="py-3 px-3">
+                                {primaryDM ? (
+                                  <div>
+                                    <div className="font-semibold text-slate-200">{primaryDM}</div>
+                                    <div className="text-[10px] text-blue-400">{primaryDMTitle}</div>
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-500 text-[11px]">Searching...</span>
+                                )}
+                              </td>
+
+                              <td className="py-3 px-3 space-y-0.5">
+                                {company.business_email ? (
+                                  <div className="text-emerald-300 font-mono text-[11px] truncate max-w-[150px]">
+                                    ✉ {company.business_email}
+                                  </div>
+                                ) : null}
+                                {company.business_phone ? (
+                                  <div className="text-slate-300 text-[11px]">
+                                    ☎ {company.business_phone}
+                                  </div>
+                                ) : null}
+                                {!company.business_email && !company.business_phone && (
+                                  <span className="text-slate-500 text-[11px]">—</span>
+                                )}
+                              </td>
+
+                              <td className="py-3 px-3 text-right">
+                                <button
+                                  onClick={() => handleOpenCompanyDetail(company.id)}
+                                  className="px-2.5 py-1 bg-slate-800 hover:bg-blue-600 text-slate-200 hover:text-white rounded text-[11px] font-semibold transition"
+                                >
+                                  View Intelligence
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination */}
+                {totalAutomationLeads > 20 && (
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs">
+                    <span className="text-slate-400">
+                      Showing Page {automationLeadsPage} of {Math.ceil(totalAutomationLeads / 20)}
+                    </span>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        disabled={automationLeadsPage <= 1}
+                        onClick={() => {
+                          const p = automationLeadsPage - 1;
+                          loadAutomationLeads(activeAutomationId, p);
+                        }}
+                        className="px-2.5 py-1 bg-slate-950 border border-slate-800 rounded disabled:opacity-40"
+                      >
+                        Prev
+                      </button>
+                      <button
+                        disabled={automationLeadsPage >= Math.ceil(totalAutomationLeads / 20)}
+                        onClick={() => {
+                          const p = automationLeadsPage + 1;
+                          loadAutomationLeads(activeAutomationId, p);
+                        }}
+                        className="px-2.5 py-1 bg-slate-950 border border-slate-800 rounded disabled:opacity-40"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        )}
+        </main>
+      )}
 
-        {/* Filter & Search Bar */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex-1 min-w-[260px] relative">
-            <input
-              type="text"
-              placeholder="Search companies, owner, phone, email, city, state..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-            />
-            <span className="absolute left-3 top-2.5 text-slate-500 text-xs">🔍</span>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            {/* Status Filter */}
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-300 focus:outline-none focus:border-blue-500"
-            >
-              <option value="All">All Statuses</option>
-              <option value="Fully Verified">Fully Verified</option>
-              <option value="Partially Verified">Partially Verified</option>
-              <option value="Unverified">Unverified</option>
-              <option value="Not Found">Not Found</option>
-              <option value="Requires Manual Review">Requires Review</option>
-            </select>
-
-            {/* Quick Chips */}
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 2: AUTOMATION HISTORY                                     */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === "history" && (
+        <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white">Automation Execution History</h2>
+              <p className="text-xs text-slate-400">
+                Audit log of all autonomous lead generation runs with performance metrics and direct downloads.
+              </p>
+            </div>
             <button
-              onClick={() => setHasOwnerFilter(hasOwnerFilter === true ? null : true)}
-              className={`px-3 py-2 rounded-lg border font-medium transition ${
-                hasOwnerFilter === true 
-                  ? "bg-blue-600 text-white border-blue-500" 
-                  : "bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700"
-              }`}
+              onClick={loadAutomationHistory}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold"
             >
-              👤 Has Owner
-            </button>
-            <button
-              onClick={() => setHasEmailFilter(hasEmailFilter === true ? null : true)}
-              className={`px-3 py-2 rounded-lg border font-medium transition ${
-                hasEmailFilter === true 
-                  ? "bg-blue-600 text-white border-blue-500" 
-                  : "bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700"
-              }`}
-            >
-              ✉️ Has Email
-            </button>
-            <button
-              onClick={() => setHasLinkedInFilter(hasLinkedInFilter === true ? null : true)}
-              className={`px-3 py-2 rounded-lg border font-medium transition ${
-                hasLinkedInFilter === true 
-                  ? "bg-blue-600 text-white border-blue-500" 
-                  : "bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700"
-              }`}
-            >
-              🔗 Has LinkedIn
+              🔄 Refresh History
             </button>
           </div>
-        </div>
 
-        {/* Results Table */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-300 divide-y divide-slate-800">
-              <thead className="bg-slate-950 text-slate-400 uppercase font-semibold text-[10px] tracking-wider">
-                <tr>
-                  <th className="px-4 py-3">Company & Identity</th>
-                  <th className="px-4 py-3">Decision Makers</th>
-                  <th className="px-4 py-3">Contacts</th>
-                  <th className="px-4 py-3">Personal Contacts</th>
-                  <th className="px-4 py-3">LinkedIn & Socials</th>
-                  <th className="px-4 py-3 text-center">Confidence</th>
-                  <th className="px-4 py-3 text-center">Status</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 text-slate-400 uppercase text-[10px] tracking-wider bg-slate-950/60">
+                  <th className="py-3 px-4">Session ID</th>
+                  <th className="py-3 px-4">Location & Radius</th>
+                  <th className="py-3 px-4">Target Industry</th>
+                  <th className="py-3 px-4">Progress / Enriched</th>
+                  <th className="py-3 px-4">Decision Makers</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60 font-normal">
-                {companies.length === 0 ? (
+              <tbody className="divide-y divide-slate-800">
+                {automationHistory.length === 0 ? (
                   <tr>
-                    <td colSpan="8" className="px-4 py-12 text-center text-slate-500">
-                      {currentJob ? "No companies matched your filter criteria." : "Please upload a leads file to begin research."}
+                    <td colSpan={7} className="py-8 text-center text-slate-500">
+                      No automation history found. Start your first search in Automated Lead Generation.
                     </td>
                   </tr>
                 ) : (
-                  companies.map(c => (
-                    <tr key={c.id} className="hover:bg-slate-800/40 transition">
-                      {/* 1. Company & Identity */}
-                      <td className="px-4 py-3 max-w-[220px]">
-                        <p className="font-semibold text-white truncate text-sm">
-                          {c.official_name || c.original_name}
-                        </p>
-                        <p className="text-[11px] text-slate-400 truncate">
-                          📍 {c.city ? `${c.city}, ${c.state}` : c.original_city ? `${c.original_city}, ${c.original_state}` : "Location N/A"}
-                        </p>
-                        {c.official_website ? (
-                          <a 
-                            href={c.official_website} 
-                            target="_blank" 
-                            rel="noreferrer"
-                            className="text-[11px] text-blue-400 hover:underline truncate block"
-                          >
-                            🌐 {c.official_website.replace(/^https?:\/\//, '')}
-                          </a>
-                        ) : (
-                          <span className="text-[10px] text-slate-500">No website</span>
-                        )}
-                        {/* Agency Intelligence Badges */}
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {c.tech_stack_cms && (
-                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                              💻 {c.tech_stack_cms}
-                            </span>
-                          )}
-                          {c.redesign_opportunity && (
-                            <span className={`text-[9px] px-1.5 py-0.2 rounded font-semibold border ${
-                              c.redesign_opportunity.startsWith("High") 
-                                ? "bg-rose-950/70 text-rose-300 border-rose-800/60"
-                                : c.redesign_opportunity.startsWith("Medium")
-                                ? "bg-amber-950/70 text-amber-300 border-amber-800/60"
-                                : "bg-emerald-950/70 text-emerald-300 border-emerald-800/60"
-                            }`}>
-                              🎯 {c.redesign_opportunity.split(" ")[0]} Opp
-                            </span>
-                          )}
+                  automationHistory.map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-800/30 transition">
+                      <td className="py-3 px-4 font-mono text-slate-300">
+                        {item.id}
+                        <div className="text-[10px] text-slate-500">
+                          {new Date(item.created_at).toLocaleString()}
                         </div>
                       </td>
 
-                      {/* 2. Mandatory Decision Makers (Owner, CEO, Founder, Co-Founder) */}
-                      <td className="px-4 py-3 max-w-[200px] space-y-1">
-                        {c.owner_name ? (
-                          <div>
-                            <span className="font-medium text-slate-100">{c.owner_name}</span>
-                            <span className="ml-1 text-[10px] px-1.5 py-0.2 bg-blue-900/50 text-blue-300 rounded">Owner</span>
-                          </div>
-                        ) : null}
-                        {c.ceo_name && c.ceo_name !== c.owner_name ? (
-                          <div>
-                            <span className="font-medium text-slate-200">{c.ceo_name}</span>
-                            <span className="ml-1 text-[10px] px-1.5 py-0.2 bg-indigo-900/50 text-indigo-300 rounded">CEO</span>
-                          </div>
-                        ) : null}
-                        {c.founder_name && c.founder_name !== c.owner_name && c.founder_name !== c.ceo_name ? (
-                          <div>
-                            <span className="font-medium text-slate-300">{c.founder_name}</span>
-                            <span className="ml-1 text-[10px] px-1.5 py-0.2 bg-purple-900/50 text-purple-300 rounded">Founder</span>
-                          </div>
-                        ) : null}
-                        {!c.owner_name && !c.ceo_name && !c.founder_name && (
-                          <span className="text-slate-500 italic text-[11px]">Not Found</span>
-                        )}
-                      </td>
-
-                      {/* 3. Business Contacts */}
-                      <td className="px-4 py-3 max-w-[190px] space-y-0.5">
-                        {c.business_email ? (
-                          <div className="flex items-center space-x-1 truncate">
-                            <span className="text-slate-400">✉️</span>
-                            <span className="text-slate-200 truncate">{c.business_email}</span>
-                          </div>
-                        ) : (
-                          <span className="text-slate-500 block text-[11px]">Email: Not Found</span>
-                        )}
-                        {c.business_phone ? (
-                          <div className="flex items-center space-x-1 truncate">
-                            <span className="text-slate-400">📞</span>
-                            <span className="text-slate-200">{c.business_phone}</span>
-                          </div>
-                        ) : (
-                          <span className="text-slate-500 block text-[11px]">Phone: Not Found</span>
-                        )}
-                        <div className="flex flex-wrap gap-1 mt-0.5">
-                          {c.email_verification_status && c.email_verification_status !== "Unknown" && (
-                            <span className={`text-[9px] px-1 py-0.2 rounded font-semibold ${
-                              c.email_verification_status === "Valid" ? "bg-emerald-900/60 text-emerald-300" : "bg-rose-900/60 text-rose-300"
-                            }`}>
-                              MX: {c.email_verification_status}
-                            </span>
-                          )}
-                          {c.phone_line_type && c.phone_line_type !== "Unknown" && (
-                            <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                              {c.phone_line_type}
-                            </span>
-                          )}
+                      <td className="py-3 px-4">
+                        <div className="font-semibold text-slate-200">
+                          {item.search_config?.states?.join(", ")}
+                        </div>
+                        <div className="text-[11px] text-slate-400">
+                          {item.search_config?.cities?.length > 0
+                            ? item.search_config.cities.slice(0, 3).join(", ")
+                            : "Entire State"}{" "}
+                          ({item.search_config?.radius_miles}mi)
                         </div>
                       </td>
 
-                      {/* 4. Personal Professional Contacts */}
-                      <td className="px-4 py-3 max-w-[170px] space-y-0.5">
-                        {c.personal_email ? (
-                          <p className="text-indigo-300 truncate">✉️ {c.personal_email}</p>
-                        ) : (
-                          <p className="text-slate-500 text-[11px]">Personal Email: N/A</p>
-                        )}
-                        {c.personal_phone ? (
-                          <p className="text-indigo-300 truncate">📱 {c.personal_phone}</p>
-                        ) : (
-                          <p className="text-slate-500 text-[11px]">Personal Phone: N/A</p>
-                        )}
+                      <td className="py-3 px-4 text-slate-300">
+                        {item.search_config?.industries?.join(", ")}
                       </td>
 
-                      {/* 5. Social Links */}
-                      <td className="px-4 py-3 space-x-1">
-                        {c.personal_linkedin && (
-                          <a
-                            href={c.personal_linkedin}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-block px-1.5 py-0.5 text-[10px] font-semibold bg-blue-900/60 text-blue-300 rounded border border-blue-700/60 hover:bg-blue-800 transition"
-                            title="Personal LinkedIn"
-                          >
-                            in (Person)
-                          </a>
-                        )}
-                        {c.business_linkedin && (
-                          <a
-                            href={c.business_linkedin}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-block px-1.5 py-0.5 text-[10px] font-semibold bg-sky-900/60 text-sky-300 rounded border border-sky-700/60 hover:bg-sky-800 transition"
-                            title="Company LinkedIn"
-                          >
-                            in (Co)
-                          </a>
-                        )}
-                        {c.business_instagram && (
-                          <a
-                            href={c.business_instagram}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-block px-1.5 py-0.5 text-[10px] font-semibold bg-pink-900/60 text-pink-300 rounded border border-pink-700/60 hover:bg-pink-800 transition"
-                            title="Instagram"
-                          >
-                            IG
-                          </a>
-                        )}
-                        {c.business_facebook && (
-                          <a
-                            href={c.business_facebook}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-block px-1.5 py-0.5 text-[10px] font-semibold bg-indigo-900/60 text-indigo-300 rounded border border-indigo-700/60 hover:bg-indigo-800 transition"
-                            title="Facebook"
-                          >
-                            FB
-                          </a>
-                        )}
-                        {!c.personal_linkedin && !c.business_linkedin && !c.business_instagram && !c.business_facebook && (
-                          <span className="text-slate-500 text-[11px]">None</span>
-                        )}
+                      <td className="py-3 px-4">
+                        <div className="font-semibold text-white">
+                          {item.enriched_count} / {item.target_leads}
+                        </div>
+                        <div className="text-[10px] text-slate-500">
+                          {item.progress_percentage}% completed
+                        </div>
                       </td>
 
-                      {/* 6. Confidence Score */}
-                      <td className="px-4 py-3 text-center">
-                        {renderConfidenceBadge(c.overall_confidence_score)}
+                      <td className="py-3 px-4 text-emerald-400 font-bold">
+                        {item.decision_makers_found}
                       </td>
 
-                      {/* 7. Verification Status */}
-                      <td className="px-4 py-3 text-center">
-                        {renderStatusBadge(c.overall_verification_status)}
-                      </td>
-
-                      {/* 8. Action: Open Drawer */}
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => setSelectedCompanyId(c.id)}
-                          className="px-2.5 py-1 text-xs rounded bg-slate-800 hover:bg-blue-600 text-slate-300 hover:text-white border border-slate-700 hover:border-blue-500 transition"
+                      <td className="py-3 px-4">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            item.status === "COMPLETED"
+                              ? "bg-emerald-950 text-emerald-300 border border-emerald-800"
+                              : item.status === "RUNNING"
+                              ? "bg-blue-950 text-blue-300 border border-blue-800 animate-pulse"
+                              : item.status === "PAUSED"
+                              ? "bg-amber-950 text-amber-300 border border-amber-800"
+                              : "bg-rose-950 text-rose-300 border border-rose-800"
+                          }`}
                         >
-                          Evidence & Details &rarr;
+                          {item.status}
+                        </span>
+                      </td>
+
+                      <td className="py-3 px-4 text-right space-x-2">
+                        <button
+                          onClick={() => {
+                            setActiveAutomationId(item.id);
+                            setActiveAutomation(item);
+                            setActiveTab("automation");
+                            loadAutomationLeads(item.id, 1);
+                          }}
+                          className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[11px] font-semibold"
+                        >
+                          View Leads
                         </button>
+                        <a
+                          href={`/api/export/automation/${item.id}/excel`}
+                          download
+                          className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[11px]"
+                        >
+                          📗 Excel
+                        </a>
                       </td>
                     </tr>
                   ))
@@ -748,449 +1661,210 @@ function App() {
               </tbody>
             </table>
           </div>
-
-          {/* Pagination */}
-          <div className="px-4 py-3 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-            <span>
-              Showing {companies.length} of {totalCompanies} companies
-            </span>
-            <div className="flex items-center space-x-2">
-              <button
-                disabled={currentPage <= 1}
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                className="px-2.5 py-1 rounded bg-slate-800 text-slate-300 disabled:opacity-40 border border-slate-700"
-              >
-                &larr; Prev
-              </button>
-              <span className="text-slate-300 font-semibold">Page {currentPage} of {totalPages || 1}</span>
-              <button
-                disabled={currentPage >= totalPages}
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                className="px-2.5 py-1 rounded bg-slate-800 text-slate-300 disabled:opacity-40 border border-slate-700"
-              >
-                Next &rarr;
-              </button>
-            </div>
-          </div>
-        </div>
-      </main>
-
-      {/* 3. Slide-Over Evidence Drawer */}
-      {selectedCompanyId && (
-        <div className="fixed inset-0 z-50 overflow-hidden flex justify-end">
-          <div 
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
-            onClick={() => setSelectedCompanyId(null)}
-          ></div>
-          <div className="relative w-full max-w-2xl bg-slate-900 border-l border-slate-800 shadow-2xl h-full flex flex-col z-10 custom-scrollbar overflow-y-auto">
-            {companyDetail ? (
-              <div className="p-6 space-y-6">
-                {/* Header */}
-                <div className="flex items-start justify-between border-b border-slate-800 pb-4">
-                  <div>
-                    <h2 className="text-xl font-bold text-white">
-                      {companyDetail.official_name || companyDetail.original_name}
-                    </h2>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Lead ID: <strong className="text-slate-300">{companyDetail.original_id}</strong> &bull; {companyDetail.city}, {companyDetail.state}
-                    </p>
-                    {companyDetail.official_website && (
-                      <a href={companyDetail.official_website} target="_blank" rel="noreferrer" className="text-xs text-blue-400 hover:underline mt-0.5 block">
-                        🌐 {companyDetail.official_website} ({companyDetail.website_status})
-                      </a>
-                    )}
-                  </div>
-                  <div className="flex flex-col items-end space-y-2">
-                    <button 
-                      onClick={() => setSelectedCompanyId(null)}
-                      className="text-slate-400 hover:text-white text-lg font-bold p-1"
-                    >
-                      ✕
-                    </button>
-                    {renderConfidenceBadge(companyDetail.overall_confidence_score)}
-                  </div>
-                </div>
-
-                {/* Tabs */}
-                <div className="flex border-b border-slate-800 space-x-3 text-xs font-semibold overflow-x-auto pb-1">
-                  <button
-                    onClick={() => setDrawerTab("mandatory")}
-                    className={`pb-2 border-b-2 transition whitespace-nowrap ${drawerTab === "mandatory" ? "border-blue-500 text-blue-400" : "border-transparent text-slate-400"}`}
-                  >
-                    12 Mandatory Fields
-                  </button>
-                  <button
-                    onClick={() => setDrawerTab("pitch")}
-                    className={`pb-2 border-b-2 transition whitespace-nowrap flex items-center space-x-1 ${drawerTab === "pitch" ? "border-blue-500 text-blue-400" : "border-transparent text-slate-400"}`}
-                  >
-                    <span>🎯 Cold Pitch</span>
-                    <span className="text-[10px] px-1.5 py-0.2 bg-blue-900/60 text-blue-300 rounded-full font-bold">Tex Web</span>
-                  </button>
-                  <button
-                    onClick={() => setDrawerTab("evidence")}
-                    className={`pb-2 border-b-2 transition whitespace-nowrap ${drawerTab === "evidence" ? "border-blue-500 text-blue-400" : "border-transparent text-slate-400"}`}
-                  >
-                    Evidence Ledger ({companyDetail.evidence?.length || 0})
-                  </button>
-                  <button
-                    onClick={() => setDrawerTab("identity")}
-                    className={`pb-2 border-b-2 transition whitespace-nowrap ${drawerTab === "identity" ? "border-blue-500 text-blue-400" : "border-transparent text-slate-400"}`}
-                  >
-                    Company & Tech Audit
-                  </button>
-                  <button
-                    onClick={() => setDrawerTab("raw")}
-                    className={`pb-2 border-b-2 transition whitespace-nowrap ${drawerTab === "raw" ? "border-blue-500 text-blue-400" : "border-transparent text-slate-400"}`}
-                  >
-                    Original File Data
-                  </button>
-                </div>
-
-                {/* Tab 1: 12 Mandatory Fields Breakdown */}
-                {drawerTab === "mandatory" && (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                      {/* Owner */}
-                      <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                        <span className="text-slate-400 font-medium">1. Owner</span>
-                        <p className="font-semibold text-white mt-1">{companyDetail.owner_name || "Not Found"}</p>
-                        <p className="text-[10px] text-slate-500">{companyDetail.owner_title || "Designation N/A"}</p>
-                        <div className="mt-2">{renderStatusBadge(companyDetail.owner_status)}</div>
-                      </div>
-
-                      {/* CEO */}
-                      <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                        <span className="text-slate-400 font-medium">2. CEO</span>
-                        <p className="font-semibold text-white mt-1">{companyDetail.ceo_name || "Not Found"}</p>
-                        <p className="text-[10px] text-slate-500">{companyDetail.ceo_title || "Designation N/A"}</p>
-                        <div className="mt-2">{renderStatusBadge(companyDetail.ceo_status)}</div>
-                      </div>
-
-                      {/* Founder */}
-                      <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                        <span className="text-slate-400 font-medium">3. Founder</span>
-                        <p className="font-semibold text-white mt-1">{companyDetail.founder_name || "Not Found"}</p>
-                        <p className="text-[10px] text-slate-500">{companyDetail.founder_title || "Designation N/A"}</p>
-                        <div className="mt-2">{renderStatusBadge(companyDetail.founder_status)}</div>
-                      </div>
-
-                      {/* Co-Founder */}
-                      <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                        <span className="text-slate-400 font-medium">4. Co-Founder</span>
-                        <p className="font-semibold text-white mt-1">{companyDetail.cofounder_name || "Not Found"}</p>
-                        <p className="text-[10px] text-slate-500">{companyDetail.cofounder_title || "Designation N/A"}</p>
-                        <div className="mt-2">{renderStatusBadge(companyDetail.cofounder_status)}</div>
-                      </div>
-
-                      {/* Business Email */}
-                      <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                        <span className="text-slate-400 font-medium">5. Business Email</span>
-                        <p className="font-semibold text-white mt-1">{companyDetail.business_email || "Not Found"}</p>
-                        <div className="mt-2">{renderStatusBadge(companyDetail.business_email_status)}</div>
-                      </div>
-
-                      {/* Business Phone */}
-                      <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                        <span className="text-slate-400 font-medium">6. Business Phone</span>
-                        <p className="font-semibold text-white mt-1">{companyDetail.business_phone || "Not Found"}</p>
-                        <div className="mt-2">{renderStatusBadge(companyDetail.business_phone_status)}</div>
-                      </div>
-
-                      {/* Personal Professional Email */}
-                      <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                        <span className="text-slate-400 font-medium">7. Personal Professional Email</span>
-                        <p className="font-semibold text-white mt-1">{companyDetail.personal_email || "Not Found"}</p>
-                        <div className="mt-2">{renderStatusBadge(companyDetail.personal_email_status)}</div>
-                      </div>
-
-                      {/* Public Professional Phone */}
-                      <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                        <span className="text-slate-400 font-medium">8. Public Professional Phone</span>
-                        <p className="font-semibold text-white mt-1">{companyDetail.personal_phone || "Not Found"}</p>
-                        <div className="mt-2">{renderStatusBadge(companyDetail.personal_phone_status)}</div>
-                      </div>
-
-                      {/* Personal LinkedIn */}
-                      <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                        <span className="text-slate-400 font-medium">9. Personal LinkedIn</span>
-                        <p className="font-semibold text-blue-400 truncate mt-1">
-                          {companyDetail.personal_linkedin ? (
-                            <a href={companyDetail.personal_linkedin} target="_blank" rel="noreferrer" className="hover:underline">
-                              {companyDetail.personal_linkedin}
-                            </a>
-                          ) : "Not Found"}
-                        </p>
-                        <div className="mt-2">{renderStatusBadge(companyDetail.personal_linkedin_status)}</div>
-                      </div>
-
-                      {/* Business LinkedIn */}
-                      <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                        <span className="text-slate-400 font-medium">10. Business LinkedIn</span>
-                        <p className="font-semibold text-blue-400 truncate mt-1">
-                          {companyDetail.business_linkedin ? (
-                            <a href={companyDetail.business_linkedin} target="_blank" rel="noreferrer" className="hover:underline">
-                              {companyDetail.business_linkedin}
-                            </a>
-                          ) : "Not Found"}
-                        </p>
-                        <div className="mt-2">{renderStatusBadge(companyDetail.business_linkedin_status)}</div>
-                      </div>
-
-                      {/* Business Instagram */}
-                      <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                        <span className="text-slate-400 font-medium">11. Business Instagram</span>
-                        <p className="font-semibold text-pink-400 truncate mt-1">
-                          {companyDetail.business_instagram ? (
-                            <a href={companyDetail.business_instagram} target="_blank" rel="noreferrer" className="hover:underline">
-                              {companyDetail.business_instagram}
-                            </a>
-                          ) : "Not Found"}
-                        </p>
-                        <div className="mt-2">{renderStatusBadge(companyDetail.business_instagram_status)}</div>
-                      </div>
-
-                      {/* Business Facebook */}
-                      <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                        <span className="text-slate-400 font-medium">12. Business Facebook</span>
-                        <p className="font-semibold text-indigo-400 truncate mt-1">
-                          {companyDetail.business_facebook ? (
-                            <a href={companyDetail.business_facebook} target="_blank" rel="noreferrer" className="hover:underline">
-                              {companyDetail.business_facebook}
-                            </a>
-                          ) : "Not Found"}
-                        </p>
-                        <div className="mt-2">{renderStatusBadge(companyDetail.business_facebook_status)}</div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Tab 1.5: Cold Outreach Pitch */}
-                {drawerTab === "pitch" && (
-                  <div className="space-y-4">
-                    {/* Tech & SEO Audit Cards */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                      <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
-                        <span className="text-slate-400 block text-[10px] font-medium">CMS / Platform</span>
-                        <span className="font-bold text-white text-xs mt-0.5 block truncate">{companyDetail.tech_stack_cms || "Custom"}</span>
-                      </div>
-                      <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
-                        <span className="text-slate-400 block text-[10px] font-medium">SSL Security</span>
-                        <span className={`font-bold text-xs mt-0.5 block ${companyDetail.has_ssl ? "text-emerald-400" : "text-rose-400"}`}>
-                          {companyDetail.has_ssl ? "HTTPS Secured" : "Unsecured (Risk)"}
-                        </span>
-                      </div>
-                      <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
-                        <span className="text-slate-400 block text-[10px] font-medium">Mobile Responsive</span>
-                        <span className={`font-bold text-xs mt-0.5 block ${companyDetail.is_mobile_responsive ? "text-emerald-400" : "text-rose-400"}`}>
-                          {companyDetail.is_mobile_responsive ? "Responsive" : "Non-Mobile"}
-                        </span>
-                      </div>
-                      <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
-                        <span className="text-slate-400 block text-[10px] font-medium">SEO Health Score</span>
-                        <span className="font-bold text-amber-400 text-xs mt-0.5 block">{companyDetail.seo_audit_score || 0} / 100</span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-white flex items-center space-x-1.5">
-                        <span>🎯 Tailored Outreach Pitch for Tex Web Solutions</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-blue-900/60 text-blue-300 border border-blue-700/60 font-medium">
-                          {companyDetail.redesign_opportunity || "Medium Opportunity"}
-                        </span>
-                      </span>
-                      <button
-                        onClick={() => copyPitchToClipboard(companyDetail.ai_personalized_pitch)}
-                        className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center space-x-1.5 transition shadow"
-                      >
-                        <span>{pitchCopied ? "✓ Copied to Clipboard!" : "📋 Copy Outreach Pitch"}</span>
-                      </button>
-                    </div>
-
-                    <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-xs text-slate-300 whitespace-pre-wrap leading-relaxed selection:bg-blue-500 selection:text-white">
-                      {companyDetail.ai_personalized_pitch || "No personalized pitch generated yet."}
-                    </div>
-
-                    <div className="p-3 bg-blue-950/30 border border-blue-900/40 rounded-lg text-[11px] text-blue-300 flex items-start space-x-2">
-                      <span className="text-base">💡</span>
-                      <p>
-                        This pitch highlights specific technical weaknesses found during the audit (e.g. mobile responsiveness, SSL, slow builder CMS, missing Google Analytics) to position <strong>Tex Web Solutions Pvt. Ltd.</strong> as the obvious technical partner.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Tab 2: Evidence Ledger */}
-                {drawerTab === "evidence" && (
-                  <div className="space-y-3">
-                    {companyDetail.evidence?.length === 0 ? (
-                      <p className="text-slate-500 text-xs italic text-center py-6">No evidence recorded yet.</p>
-                    ) : (
-                      companyDetail.evidence.map(ev => (
-                        <div key={ev.id} className="bg-slate-950 p-3.5 rounded-lg border border-slate-800 space-y-1.5 text-xs">
-                          <div className="flex items-center justify-between">
-                            <span className="font-bold text-white text-sm">{ev.field_name}</span>
-                            <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 font-semibold border border-slate-700">
-                              {ev.source_name}
-                            </span>
-                          </div>
-                          <p className="text-blue-300 font-mono text-xs bg-slate-900 px-2 py-1 rounded border border-slate-800">
-                            {ev.discovered_value}
-                          </p>
-                          {ev.source_url && (
-                            <a 
-                              href={ev.source_url} 
-                              target="_blank" 
-                              rel="noreferrer" 
-                              className="text-blue-400 hover:underline block truncate text-[11px]"
-                            >
-                              🔗 {ev.source_url}
-                            </a>
-                          )}
-                          <p className="text-slate-400 text-[11px]">{ev.notes}</p>
-                          <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-800/60">
-                            <span>Checked: {new Date(ev.last_checked).toLocaleDateString()}</span>
-                            <span>Confidence: {ev.confidence_score}%</span>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-
-                {/* Tab 3: Company & Website Identity */}
-                {drawerTab === "identity" && (
-                  <div className="bg-slate-950 p-4 rounded-lg border border-slate-800 space-y-3 text-xs">
-                    <div>
-                      <span className="text-slate-400">Full Business Address:</span>
-                      <p className="font-semibold text-white mt-0.5">{companyDetail.address || "Address N/A"}</p>
-                    </div>
-                    <div>
-                      <span className="text-slate-400">Year Established:</span>
-                      <p className="font-semibold text-white mt-0.5">{companyDetail.year_established || "N/A"}</p>
-                    </div>
-                    <div>
-                      <span className="text-slate-400">Website Title:</span>
-                      <p className="text-slate-200 mt-0.5">{companyDetail.website_title || "N/A"}</p>
-                    </div>
-                    <div>
-                      <span className="text-slate-400">Website Meta Description:</span>
-                      <p className="text-slate-300 text-[11px] mt-0.5">{companyDetail.website_description || "N/A"}</p>
-                    </div>
-                    <div className="pt-2 border-t border-slate-800 space-y-1">
-                      <span className="text-slate-400 font-semibold">Subpages Discovered:</span>
-                      <ul className="list-disc list-inside text-slate-300 space-y-0.5 text-[11px]">
-                        {companyDetail.about_page_url && <li>About Us: <a href={companyDetail.about_page_url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">{companyDetail.about_page_url}</a></li>}
-                        {companyDetail.contact_page_url && <li>Contact Us: <a href={companyDetail.contact_page_url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">{companyDetail.contact_page_url}</a></li>}
-                        {companyDetail.team_page_url && <li>Team / Leadership: <a href={companyDetail.team_page_url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">{companyDetail.team_page_url}</a></li>}
-                        {companyDetail.services_page_url && <li>Services: <a href={companyDetail.services_page_url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">{companyDetail.services_page_url}</a></li>}
-                      </ul>
-                    </div>
-                  </div>
-                )}
-
-                {/* Tab 4: Raw Original Data Preserved */}
-                {drawerTab === "raw" && (
-                  <div className="bg-slate-950 p-4 rounded-lg border border-slate-800 space-y-2 text-xs">
-                    <p className="text-slate-400 italic mb-2">Original values preserved intact from uploaded file:</p>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="bg-slate-900 p-2 rounded"><strong className="text-slate-400">id:</strong> {companyDetail.original_id}</div>
-                      <div className="bg-slate-900 p-2 rounded"><strong className="text-slate-400">name:</strong> {companyDetail.original_name}</div>
-                      <div className="bg-slate-900 p-2 rounded"><strong className="text-slate-400">trades:</strong> {companyDetail.original_trades}</div>
-                      <div className="bg-slate-900 p-2 rounded"><strong className="text-slate-400">city:</strong> {companyDetail.original_city}</div>
-                      <div className="bg-slate-900 p-2 rounded"><strong className="text-slate-400">state:</strong> {companyDetail.original_state}</div>
-                      <div className="bg-slate-900 p-2 rounded"><strong className="text-slate-400">phone:</strong> {companyDetail.original_phone}</div>
-                      <div className="bg-slate-900 p-2 rounded col-span-2"><strong className="text-slate-400">website:</strong> {companyDetail.original_website}</div>
-                      <div className="bg-slate-900 p-2 rounded"><strong className="text-slate-400">claimed:</strong> {companyDetail.original_claimed}</div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="p-8 text-center text-slate-500">Loading details...</div>
-            )}
-          </div>
-        </div>
+        </main>
       )}
 
-      {/* 4. Upload & Column Mapping Modal */}
-      {uploadModalOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/75 backdrop-blur-sm" onClick={() => setUploadModalOpen(false)}></div>
-          <div className="relative bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-5 z-10 custom-scrollbar max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 3: ORIGINAL LEAD ENRICHMENT (EXCEL/CSV UPLOAD FLOW)       */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === "enrichment" && (
+        <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-white">Manual Lead Enrichment & Upload</h2>
+              <p className="text-xs text-slate-400">
+                Upload existing CSV/XLSX lists, map columns with preview confirmation, and execute 12-field research.
+              </p>
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setUploadModalOpen(true)}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition shadow-sm"
+              >
+                📁 Upload Excel / CSV
+              </button>
+              {currentJob && (
+                <a
+                  href={`/api/export/job/${currentJob.id}/excel`}
+                  download
+                  className="px-3 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition"
+                >
+                  📗 Download Excel
+                </a>
+              )}
+            </div>
+          </div>
+
+          {/* Job Overview Strip */}
+          {currentJob && (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-bold text-white">Upload Leads & Confirm Column Mapping</h3>
-                <p className="text-xs text-slate-400">Upload your company XLSX or CSV file. We will preview and map your columns.</p>
+                <span className="text-xs text-slate-400 font-mono">Job: {currentJob.id}</span>
+                <div className="font-bold text-white text-sm">
+                  {currentJob.filename} &bull; {currentJob.total_companies} Companies
+                </div>
               </div>
-              <button onClick={() => setUploadModalOpen(false)} className="text-slate-400 hover:text-white font-bold text-lg">✕</button>
+              <div className="flex items-center space-x-4">
+                <div className="text-right">
+                  <div className="text-xs font-bold text-slate-300">
+                    {currentJob.processed_companies} / {currentJob.total_companies} Processed
+                  </div>
+                  <div className="text-[10px] text-slate-500">Status: {currentJob.status}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Lead Table for Job */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+            <h3 className="text-sm font-bold text-white mb-3">Enriched Companies</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 uppercase text-[10px]">
+                    <th className="py-2 px-3">Company</th>
+                    <th className="py-2 px-3">Location</th>
+                    <th className="py-2 px-3">Owner/CEO</th>
+                    <th className="py-2 px-3">Email</th>
+                    <th className="py-2 px-3">Phone</th>
+                    <th className="py-2 px-3 text-right">Details</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {companies.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-slate-500">
+                        No companies in this job or no job selected.
+                      </td>
+                    </tr>
+                  ) : (
+                    companies.map(c => (
+                      <tr key={c.id} className="hover:bg-slate-800/40">
+                        <td className="py-2.5 px-3 font-semibold text-white">{c.name}</td>
+                        <td className="py-2.5 px-3 text-slate-300">{c.city}, {c.state}</td>
+                        <td className="py-2.5 px-3 text-slate-300">{c.owner_name || c.ceo_name || "—"}</td>
+                        <td className="py-2.5 px-3 font-mono text-emerald-400">{c.business_email || "—"}</td>
+                        <td className="py-2.5 px-3 text-slate-300">{c.business_phone || "—"}</td>
+                        <td className="py-2.5 px-3 text-right">
+                          <button
+                            onClick={() => handleOpenCompanyDetail(c.id)}
+                            className="px-2 py-1 bg-slate-800 hover:bg-blue-600 rounded text-[11px]"
+                          >
+                            View
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </main>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 4: GENERAL DASHBOARD                                      */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === "dashboard" && (
+        <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+            <h2 className="text-xl font-bold text-white">System Dashboard</h2>
+            <p className="text-xs text-slate-400 mt-1">
+              Real-time analytics across all automated and manual lead enrichment pipelines.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+              <div className="text-slate-400 text-xs font-semibold uppercase">Total Automated Runs</div>
+              <div className="text-3xl font-black text-white mt-1">{automationHistory.length}</div>
+            </div>
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+              <div className="text-slate-400 text-xs font-semibold uppercase">Active Modules</div>
+              <div className="text-3xl font-black text-blue-400 mt-1">2 Engines</div>
+            </div>
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+              <div className="text-slate-400 text-xs font-semibold uppercase">US Census Coverage</div>
+              <div className="text-3xl font-black text-emerald-400 mt-1">50 States + DC</div>
+            </div>
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+              <div className="text-slate-400 text-xs font-semibold uppercase">Target Agency</div>
+              <div className="text-sm font-bold text-white mt-2">Tex Web Solutions</div>
+            </div>
+          </div>
+        </main>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* MODAL: EXCEL PREVIEW & MAPPING MODAL                          */}
+      {/* ------------------------------------------------------------- */}
+      {uploadModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-base font-bold text-white">Upload Excel / CSV Lead File</h3>
+              <button
+                onClick={() => setUploadModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
             </div>
 
-            {/* Drop Zone */}
             {!previewData ? (
-              <div className="border-2 border-dashed border-slate-700 hover:border-blue-500 rounded-xl p-8 text-center transition bg-slate-950/50">
+              <div className="border-2 border-dashed border-slate-700 hover:border-blue-500 rounded-2xl p-8 text-center cursor-pointer transition">
                 <input
                   type="file"
-                  accept=".xlsx,.xls,.csv"
-                  onChange={handleFileUpload}
-                  id="leadFileInput"
+                  accept=".xlsx,.csv"
+                  onChange={handleFileSelect}
                   className="hidden"
+                  id="modalFileInput"
                 />
-                <label htmlFor="leadFileInput" className="cursor-pointer block space-y-2">
-                  <div className="text-4xl">📁</div>
-                  <p className="text-sm font-semibold text-slate-200">
-                    {isUploading ? "Reading and analyzing file..." : "Click to select or drag and drop Excel or CSV file"}
-                  </p>
-                  <p className="text-xs text-slate-500">Supports .xlsx, .xls, and .csv with original columns</p>
+                <label htmlFor="modalFileInput" className="cursor-pointer space-y-2 block">
+                  <div className="text-3xl">📁</div>
+                  <div className="text-sm font-bold text-white">
+                    {uploadLoading ? "Reading File..." : "Click to select XLSX or CSV file"}
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    Supports original columns: id, name, trades, city, state, phone, webssite url, claimed
+                  </div>
                 </label>
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 flex items-center justify-between text-xs">
-                  <div>
-                    <span className="text-slate-400">File: </span>
-                    <strong className="text-white">{previewData.filename}</strong>
-                    <span className="text-slate-400 ml-3">Total Rows: </span>
-                    <strong className="text-blue-400">{previewData.total_rows}</strong>
-                    {previewData.duplicate_count > 0 && (
-                      <span className="ml-3 px-2 py-0.5 bg-amber-900/50 text-amber-300 rounded text-[11px]">
-                        ⚠️ {previewData.duplicate_count} potential duplicates detected
-                      </span>
-                    )}
-                  </div>
-                  <button 
-                    onClick={() => { setPreviewData(null); setUploadFile(null); }}
-                    className="text-xs text-rose-400 hover:underline"
-                  >
-                    Change File
-                  </button>
+                <div className="text-xs text-emerald-400 font-semibold">
+                  ✓ File loaded: {previewData.filename} ({previewData.total_rows} companies detected)
                 </div>
 
-                {/* Column Mapping Section */}
                 <div className="space-y-2">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                    Column Mapping (Confirm or Override)
-                  </h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                  <div className="text-xs font-bold text-white">Verify Column Mapping:</div>
+                  <div className="grid grid-cols-2 gap-3 bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs">
                     {[
-                      { key: "id", label: "1. ID" },
-                      { key: "name", label: "2. Name" },
-                      { key: "trades", label: "3. Trades / Industry" },
-                      { key: "city", label: "4. City" },
-                      { key: "state", label: "5. State" },
-                      { key: "phone", label: "6. Phone" },
-                      { key: "webssite url", label: "7. Website URL" },
-                      { key: "claimed", label: "8. Claimed Status" },
-                    ].map(f => (
-                      <div key={f.key} className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 space-y-1">
-                        <label className="text-[11px] font-medium text-slate-400 block">{f.label}</label>
+                      { key: "id", label: "Lead ID" },
+                      { key: "name", label: "Company Name" },
+                      { key: "trades", label: "Trades / Industry" },
+                      { key: "city", label: "City" },
+                      { key: "state", label: "State" },
+                      { key: "phone", label: "Phone" },
+                      { key: "website_url", label: "Website URL" },
+                      { key: "claimed", label: "Claimed Status" }
+                    ].map((col) => (
+                      <div key={col.key} className="flex items-center justify-between">
+                        <span className="text-slate-400 font-semibold">{col.label}:</span>
                         <select
-                          value={columnMappings[f.key] || ""}
-                          onChange={(e) => setColumnMappings({ ...columnMappings, [f.key]: e.target.value })}
-                          className="w-full bg-slate-900 border border-slate-700 text-white rounded px-2 py-1 text-xs focus:outline-none focus:border-blue-500"
+                          value={columnMappings[col.key] || (col.key === "website_url" ? columnMappings["webssite url"] : "") || ""}
+                          onChange={(e) => {
+                            const newMaps = { ...columnMappings, [col.key]: e.target.value };
+                            if (col.key === "website_url") {
+                              newMaps["webssite url"] = e.target.value;
+                            }
+                            setColumnMappings(newMaps);
+                          }}
+                          className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs max-w-[150px] truncate"
                         >
-                          <option value="">-- Ignore --</option>
-                          {previewData.headers.map(h => (
+                          <option value="">-- Auto/None --</option>
+                          {(previewData.original_headers || previewData.headers || []).map((h) => (
                             <option key={h} value={h}>{h}</option>
                           ))}
                         </select>
@@ -1199,82 +1873,19 @@ function App() {
                   </div>
                 </div>
 
-                {/* Research Settings */}
-                <div className="space-y-2 bg-slate-950 p-3 rounded-lg border border-slate-800 text-xs">
-                  <h4 className="font-bold uppercase tracking-wider text-slate-300">Research Configuration</h4>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <label className="text-slate-400 block mb-1">Target Industry / Trade</label>
-                      <input
-                        type="text"
-                        value={researchSettings.industry}
-                        onChange={(e) => setResearchSettings({ ...researchSettings, industry: e.target.value })}
-                        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-slate-400 block mb-1">Country</label>
-                      <input
-                        type="text"
-                        value={researchSettings.country}
-                        onChange={(e) => setResearchSettings({ ...researchSettings, country: e.target.value })}
-                        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-slate-400 block mb-1">Worker Concurrency</label>
-                      <select
-                        value={researchSettings.concurrency}
-                        onChange={(e) => setResearchSettings({ ...researchSettings, concurrency: parseInt(e.target.value) })}
-                        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs"
-                      >
-                        <option value="1">1 company at a time (Slow)</option>
-                        <option value="3">3 concurrent (Recommended)</option>
-                        <option value="5">5 concurrent (High speed)</option>
-                        <option value="10">10 concurrent</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Preview Table */}
-                <div className="space-y-1">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">File Preview (First 5 Rows)</h4>
-                  <div className="overflow-x-auto border border-slate-800 rounded-lg max-h-48 custom-scrollbar">
-                    <table className="w-full text-left text-[11px] text-slate-300">
-                      <thead className="bg-slate-950 text-slate-400 sticky top-0">
-                        <tr>
-                          {previewData.headers.map(h => (
-                            <th key={h} className="px-3 py-1.5 border-b border-slate-800">{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-800/40">
-                        {previewData.preview_rows.slice(0, 5).map((row, idx) => (
-                          <tr key={idx} className="hover:bg-slate-800/30">
-                            {previewData.headers.map(h => (
-                              <td key={h} className="px-3 py-1.5 truncate max-w-[140px]">{row[h] || "-"}</td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                <div className="pt-3 border-t border-slate-800 flex justify-end space-x-3">
+                <div className="flex justify-end space-x-2 pt-3 border-t border-slate-800">
                   <button
-                    onClick={() => setUploadModalOpen(false)}
-                    className="px-4 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-medium"
+                    onClick={() => setPreviewData(null)}
+                    className="px-3 py-1.5 bg-slate-800 text-slate-300 rounded text-xs"
                   >
-                    Cancel
+                    Back
                   </button>
                   <button
-                    disabled={isUploading}
-                    onClick={handleStartResearch}
-                    className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/30"
+                    onClick={handleConfirmMappingAndStart}
+                    disabled={uploadLoading}
+                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold"
                   >
-                    {isUploading ? "Starting Research..." : "Confirm & Start Automatic Research"}
+                    {uploadLoading ? "Starting..." : "Confirm & Start 12-Field Research"}
                   </button>
                 </div>
               </div>
@@ -1283,47 +1894,321 @@ function App() {
         </div>
       )}
 
-      {/* 5. API Settings Modal */}
-      {apiModalOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/75 backdrop-blur-sm" onClick={() => setApiModalOpen(false)}></div>
-          <div className="relative bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 z-10 custom-scrollbar max-h-[90vh] overflow-y-auto">
+      {/* ------------------------------------------------------------- */}
+      {/* DRAWER: 12-FIELD INTELLIGENCE DRAWER                          */}
+      {/* ------------------------------------------------------------- */}
+      {selectedCompanyId && companyDetail && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex justify-end">
+          <div className="bg-slate-900 border-l border-slate-800 w-full max-w-2xl h-full flex flex-col p-6 space-y-4 overflow-y-auto">
+            {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
-                <h3 className="text-lg font-bold text-white">API & Integration Settings</h3>
-                <p className="text-xs text-slate-400">Configure your API credentials. Keys are saved securely in your local environment.</p>
+                <h3 className="text-lg font-bold text-white">{companyDetail.name}</h3>
+                <p className="text-xs text-slate-400">
+                  {companyDetail.city}, {companyDetail.state} &bull; {companyDetail.trades}
+                </p>
               </div>
-              <button onClick={() => setApiModalOpen(false)} className="text-slate-400 hover:text-white font-bold text-lg">✕</button>
+              <button
+                onClick={() => {
+                  setSelectedCompanyId(null);
+                  setCompanyDetail(null);
+                }}
+                className="text-slate-400 hover:text-white text-lg font-bold"
+              >
+                ✕
+              </button>
             </div>
 
-            <div className="space-y-3">
-              {apiConfigs.map(cfg => (
-                <div key={cfg.provider_name} className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-bold text-white text-xs">{cfg.provider_name}</span>
-                      <span className={`w-2 h-2 rounded-full ${cfg.is_connected ? "bg-emerald-500" : cfg.has_key ? "bg-amber-500" : "bg-slate-600"}`}></span>
-                      <span className="text-[10px] text-slate-400">
-                        {cfg.is_connected ? "Connected" : cfg.has_key ? "Key Saved (Untested)" : "Not Configured"}
-                      </span>
+            {/* Tab navigation in drawer */}
+            <div className="flex items-center space-x-1 border-b border-slate-800 pb-2 text-xs">
+              <button
+                onClick={() => setDrawerTab("mandatory")}
+                className={`px-3 py-1.5 rounded-lg font-semibold ${
+                  drawerTab === "mandatory" ? "bg-blue-600 text-white" : "text-slate-400 hover:bg-slate-800"
+                }`}
+              >
+                Mandatory 12 Fields
+              </button>
+              <button
+                onClick={() => setDrawerTab("pitch")}
+                className={`px-3 py-1.5 rounded-lg font-semibold ${
+                  drawerTab === "pitch" ? "bg-blue-600 text-white" : "text-slate-400 hover:bg-slate-800"
+                }`}
+              >
+                Personalized Pitch
+              </button>
+              <button
+                onClick={() => setDrawerTab("audit")}
+                className={`px-3 py-1.5 rounded-lg font-semibold ${
+                  drawerTab === "audit" ? "bg-blue-600 text-white" : "text-slate-400 hover:bg-slate-800"
+                }`}
+              >
+                Website Redesign Audit
+              </button>
+            </div>
+
+            {/* TAB: MANDATORY 12 FIELDS */}
+            {drawerTab === "mandatory" && (
+              <div className="space-y-4 text-xs">
+                {/* 1-4 Decision Makers */}
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                  <h4 className="font-bold text-blue-400 uppercase tracking-wider text-[11px]">
+                    Decision-Maker Intelligence (Owner / CEO / Founder)
+                  </h4>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <span className="text-slate-400">1. Owner:</span>{" "}
+                      <span className="font-semibold text-white">{companyDetail.owner_name || "Not Found"}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">2. CEO:</span>{" "}
+                      <span className="font-semibold text-white">{companyDetail.ceo_name || "Not Found"}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">3. Founder:</span>{" "}
+                      <span className="font-semibold text-white">{companyDetail.founder_name || "Not Found"}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">4. Co-Founder:</span>{" "}
+                      <span className="font-semibold text-white">{companyDetail.co_founder_name || "Not Found"}</span>
                     </div>
                   </div>
+                </div>
 
+                {/* 5-8 Contact Info */}
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                  <h4 className="font-bold text-emerald-400 uppercase tracking-wider text-[11px]">
+                    Direct Contact Channels
+                  </h4>
+                  <div className="space-y-1.5">
+                    <div>
+                      <span className="text-slate-400">5. Business Email:</span>{" "}
+                      <span className="font-mono text-emerald-300">{companyDetail.business_email || "Not Found"}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">6. Business Phone:</span>{" "}
+                      <span className="text-slate-200">{companyDetail.business_phone || "Not Found"}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">7. Personal Email:</span>{" "}
+                      <span className="font-mono text-emerald-300">{companyDetail.personal_email || "Not Found"}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">8. Personal Phone:</span>{" "}
+                      <span className="text-slate-200">{companyDetail.personal_phone || "Not Found"}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 9-12 Social Profiles */}
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                  <h4 className="font-bold text-cyan-400 uppercase tracking-wider text-[11px]">
+                    Social & Professional Profiles
+                  </h4>
+                  <div className="space-y-1.5">
+                    <div>
+                      <span className="text-slate-400">9. Personal LinkedIn:</span>{" "}
+                      {companyDetail.personal_linkedin ? (
+                        <a href={companyDetail.personal_linkedin} target="_blank" rel="noreferrer" className="text-blue-400 underline">
+                          {companyDetail.personal_linkedin}
+                        </a>
+                      ) : "Not Found"}
+                    </div>
+                    <div>
+                      <span className="text-slate-400">10. Business LinkedIn:</span>{" "}
+                      {companyDetail.business_linkedin ? (
+                        <a href={companyDetail.business_linkedin} target="_blank" rel="noreferrer" className="text-blue-400 underline">
+                          {companyDetail.business_linkedin}
+                        </a>
+                      ) : "Not Found"}
+                    </div>
+                    <div>
+                      <span className="text-slate-400">11. Business Instagram:</span>{" "}
+                      {companyDetail.business_instagram ? (
+                        <a href={companyDetail.business_instagram} target="_blank" rel="noreferrer" className="text-pink-400 underline">
+                          {companyDetail.business_instagram}
+                        </a>
+                      ) : "Not Found"}
+                    </div>
+                    <div>
+                      <span className="text-slate-400">12. Business Facebook:</span>{" "}
+                      {companyDetail.business_facebook ? (
+                        <a href={companyDetail.business_facebook} target="_blank" rel="noreferrer" className="text-blue-300 underline">
+                          {companyDetail.business_facebook}
+                        </a>
+                      ) : "Not Found"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB: PERSONALIZED PITCH */}
+            {drawerTab === "pitch" && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-400">Outreach Email Pitch for Tex Web Solutions:</span>
+                  <button
+                    onClick={() => copyPitchToClipboard(companyDetail.custom_pitch)}
+                    className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold"
+                  >
+                    {pitchCopied ? "✓ Copied!" : "📋 Copy Pitch"}
+                  </button>
+                </div>
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs text-slate-200 whitespace-pre-line leading-relaxed font-sans">
+                  {companyDetail.custom_pitch || "No pitch generated for this company."}
+                </div>
+              </div>
+            )}
+
+            {/* TAB: AUDIT */}
+            {drawerTab === "audit" && (
+              <div className="space-y-3 text-xs">
+                {/* Live Website Visual Proof Screenshot */}
+                {companyDetail.website_screenshot_url || (companyDetail.official_website && companyDetail.official_website !== "N/A") ? (
+                  <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-200">📸 Live Website Visual Proof:</span>
+                      {companyDetail.official_website && companyDetail.official_website !== "N/A" && (
+                        <a
+                          href={companyDetail.official_website.startsWith("http") ? companyDetail.official_website : `https://${companyDetail.official_website}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-blue-400 text-[11px] hover:underline"
+                        >
+                          Open Website ↗
+                        </a>
+                      )}
+                    </div>
+                    <div className="rounded-lg overflow-hidden border border-slate-800 max-h-56 bg-slate-900 flex items-center justify-center">
+                      <img
+                        src={companyDetail.website_screenshot_url || `https://s0.wp.com/mshots/v1/${companyDetail.official_website.startsWith("http") ? companyDetail.official_website : "https://" + companyDetail.official_website}?w=800&h=600`}
+                        alt="Current Website Visual Proof"
+                        className="w-full object-cover object-top hover:scale-105 transition duration-300"
+                        onError={(e) => { e.target.parentElement.innerHTML = '<div class="py-6 text-slate-500 text-center text-xs">Website preview offline or blocked</div>'; }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-slate-950 p-4 rounded-xl border border-amber-900/40 text-amber-300 text-xs flex items-center space-x-2">
+                    <span>⚠️ No website detected — 100% Greenfield Web Development sale opportunity for Tex Web Solutions!</span>
+                  </div>
+                )}
+
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2.5">
+                  <h4 className="font-bold text-amber-400 uppercase tracking-wider text-[11px]">Tex Web Solutions Agency Audit</h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><span className="text-slate-400">CMS Framework:</span> <span className="font-semibold text-white">{companyDetail.tech_stack_cms || companyDetail.cms_framework || "None / Custom"}</span></div>
+                    <div><span className="text-slate-400">Opportunity Score:</span> <span className="font-semibold text-white">{companyDetail.lead_score || 0}/100</span></div>
+                    <div><span className="text-slate-400">SSL Encryption:</span> <span className={companyDetail.has_ssl ? "text-emerald-400" : "text-rose-400"}>{companyDetail.has_ssl ? "Yes (Secured)" : "No (Insecure HTTP)"}</span></div>
+                    <div><span className="text-slate-400">Mobile Responsive:</span> <span className={companyDetail.is_mobile_responsive ? "text-emerald-400" : "text-amber-400"}>{companyDetail.is_mobile_responsive ? "Yes" : "Needs Optimization"}</span></div>
+                  </div>
+                  <div><span className="text-slate-400">Audit Diagnosis:</span> <span className="text-slate-300">{companyDetail.lead_score_reason || "Evaluated for redesign opportunities"}</span></div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* MODAL: API SETTINGS                                           */}
+      {/* ------------------------------------------------------------- */}
+      {apiModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 space-y-4 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-base font-bold text-white">API Integrations & Outreach Channels</h3>
+              <button onClick={() => setApiModalOpen(false)} className="text-slate-400 hover:text-white">✕</button>
+            </div>
+
+            {/* Outgoing Webhook Push for CRM */}
+            <div className="bg-slate-950 p-3.5 rounded-xl border border-indigo-900/40 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-white text-xs">CRM Outgoing Webhook (Zapier / Make / n8n / HubSpot)</span>
+                <span className="text-[10px] text-indigo-400 font-semibold">Active Push</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="text"
+                  placeholder="https://hooks.zapier.com/hooks/catch/... or n8n webhook"
+                  value={webhookUrl}
+                  onChange={(e) => {
+                    setWebhookUrl(e.target.value);
+                    localStorage.setItem("saved_webhook_url", e.target.value);
+                  }}
+                  className="flex-1 bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white"
+                />
+                <button
+                  onClick={() => {
+                    localStorage.setItem("saved_webhook_url", webhookUrl);
+                    alert("Webhook URL saved to browser storage!");
+                  }}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-semibold"
+                >
+                  Save Webhook
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-500">
+                Pushes selected qualified prospects directly into your sales CRM or email outreach sequence.
+              </p>
+            </div>
+
+            {/* HTTP/SOCKS5 Proxy Rotation */}
+            <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-white text-xs">Residential Proxy Rotation (Anti-Bot Bypass)</span>
+                <span className="text-[10px] text-slate-500">Optional</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="text"
+                  placeholder="http://user:pass@gate.smartproxy.com:7000 or BrightData"
+                  value={proxyUrl}
+                  onChange={(e) => {
+                    setProxyUrl(e.target.value);
+                    localStorage.setItem("saved_proxy_url", e.target.value);
+                  }}
+                  className="flex-1 bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white"
+                />
+                <button
+                  onClick={() => {
+                    localStorage.setItem("saved_proxy_url", proxyUrl);
+                    alert("Proxy settings saved!");
+                  }}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs font-semibold"
+                >
+                  Save Proxy
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-500">
+                Routes high-volume scraping requests through rotating US IP proxies to prevent rate limits.
+              </p>
+            </div>
+
+            <div className="space-y-3 pt-2">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+                Data & Enrichment API Keys:
+              </span>
+              {apiConfigs.map((cfg) => (
+                <div key={cfg.provider_name} className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-white text-xs">{cfg.provider_name}</span>
+                    <span className={`w-2 h-2 rounded-full ${cfg.is_connected ? "bg-emerald-500" : cfg.has_key ? "bg-amber-500" : "bg-slate-600"}`}></span>
+                  </div>
                   <div className="flex items-center space-x-2">
                     <input
                       type="password"
-                      placeholder={`Enter ${cfg.provider_name} API Key`}
+                      placeholder={`Enter ${cfg.provider_name} Key`}
                       defaultValue={cfg.has_key ? "••••••••••••••••" : ""}
                       id={`key_${cfg.provider_name}`}
-                      className="flex-1 bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                      className="flex-1 bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white"
                     />
                     <button
                       onClick={() => {
                         const val = document.getElementById(`key_${cfg.provider_name}`).value;
                         if (val && !val.includes("•")) {
                           handleSaveApiKey(cfg.provider_name, val);
-                        } else {
-                          alert("Please enter a new API key to save.");
                         }
                       }}
                       className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold"
@@ -1336,12 +2221,11 @@ function App() {
                         const val = document.getElementById(`key_${cfg.provider_name}`).value;
                         handleTestApi(cfg.provider_name, val.includes("•") ? "" : val);
                       }}
-                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded text-xs font-medium"
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs"
                     >
-                      {testingProvider === cfg.provider_name ? "Testing..." : "Test Connection"}
+                      {testingProvider === cfg.provider_name ? "Testing..." : "Test"}
                     </button>
                   </div>
-
                   {testResult[cfg.provider_name] && (
                     <p className={`text-[11px] ${testResult[cfg.provider_name].success ? "text-emerald-400" : "text-rose-400"}`}>
                       {testResult[cfg.provider_name].message}
@@ -1349,15 +2233,6 @@ function App() {
                   )}
                 </div>
               ))}
-            </div>
-
-            <div className="pt-3 border-t border-slate-800 flex justify-end">
-              <button
-                onClick={() => setApiModalOpen(false)}
-                className="px-4 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-medium"
-              >
-                Close
-              </button>
             </div>
           </div>
         </div>
@@ -1368,4 +2243,3 @@ function App() {
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(<App />);
-

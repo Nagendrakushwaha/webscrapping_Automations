@@ -16,6 +16,19 @@ class ApiConfigOut(BaseModel):
     class Config:
         from_attributes = True
 
+# 7. Bulk CRM & Webhook Schemas
+class BulkCompanyActionRequest(BaseModel):
+    company_ids: list[str]
+    action: str # "update_status", "star", "unstar", "delete", "webhook_push"
+    status: Optional[str] = None
+    webhook_url: Optional[str] = None
+
+class WebhookPushResponse(BaseModel):
+    success: bool
+    sent_count: int
+    message: str
+
+
 class ApiConfigUpdate(BaseModel):
     provider_name: str
     api_key: str
@@ -43,6 +56,7 @@ class PreviewResponse(BaseModel):
     filename: str
     total_rows: int
     headers: list[str]
+    original_headers: Optional[list[str]] = None
     preview_rows: list[dict[str, Any]]
     detected_mappings: dict[str, str]
     duplicate_count: int
@@ -78,6 +92,19 @@ class EvidenceOut(BaseModel):
     class Config:
         from_attributes = True
 
+# 7. Bulk CRM & Webhook Schemas
+class BulkCompanyActionRequest(BaseModel):
+    company_ids: list[str]
+    action: str # "update_status", "star", "unstar", "delete", "webhook_push"
+    status: Optional[str] = None
+    webhook_url: Optional[str] = None
+
+class WebhookPushResponse(BaseModel):
+    success: bool
+    sent_count: int
+    message: str
+
+
 class ManualReviewOut(BaseModel):
     id: str
     company_id: str
@@ -91,6 +118,19 @@ class ManualReviewOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+# 7. Bulk CRM & Webhook Schemas
+class BulkCompanyActionRequest(BaseModel):
+    company_ids: list[str]
+    action: str # "update_status", "star", "unstar", "delete", "webhook_push"
+    status: Optional[str] = None
+    webhook_url: Optional[str] = None
+
+class WebhookPushResponse(BaseModel):
+    success: bool
+    sent_count: int
+    message: str
+
 
 class ManualReviewResolve(BaseModel):
     selected_value: str
@@ -110,6 +150,19 @@ class DecisionMakerOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+# 7. Bulk CRM & Webhook Schemas
+class BulkCompanyActionRequest(BaseModel):
+    company_ids: list[str]
+    action: str # "update_status", "star", "unstar", "delete", "webhook_push"
+    status: Optional[str] = None
+    webhook_url: Optional[str] = None
+
+class WebhookPushResponse(BaseModel):
+    success: bool
+    sent_count: int
+    message: str
+
 
 # 5. Company Schemas
 class CompanyOut(BaseModel):
@@ -185,6 +238,11 @@ class CompanyOut(BaseModel):
     phone_line_type: str = "Landline / Office"
     email_mailbox_provider: str = "Custom"
     ai_personalized_pitch: str = ""
+    lead_status: str = "New"
+    is_starred: bool = False
+    website_screenshot_url: str = ""
+    directory_profile_url: str = ""
+    directory_description: str = ""
     
     overall_confidence_score: int
     overall_verification_status: str
@@ -241,4 +299,17 @@ class JobOut(BaseModel):
 
 class JobControlRequest(BaseModel):
     action: str # start, pause, resume, stop, retry_failed
+
+# 7. Bulk CRM & Webhook Schemas
+class BulkCompanyActionRequest(BaseModel):
+    company_ids: list[str]
+    action: str # "update_status", "star", "unstar", "delete", "webhook_push"
+    status: Optional[str] = None
+    webhook_url: Optional[str] = None
+
+class WebhookPushResponse(BaseModel):
+    success: bool
+    sent_count: int
+    message: str
+
 

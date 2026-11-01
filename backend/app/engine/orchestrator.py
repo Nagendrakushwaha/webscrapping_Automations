@@ -12,6 +12,7 @@ from .verifier import DataVerifier
 from .ai_extractor import AIExtractor
 from .tech_auditor import TechStackAuditor
 from .pitch_generator import PitchGenerator
+from .email_permutator import EmailPermutator
 from .adapters import (
     WebsiteAdapter, TavilyAdapter, GoogleSearchAdapter, GooglePlacesAdapter,
     BingAdapter, BraveAdapter, DuckDuckGoAdapter, ApolloAdapter, HunterAdapter,
@@ -261,6 +262,29 @@ class ResearchOrchestrator:
             comp.primary_decision_maker = comp.ceo_name
             comp.primary_decision_maker_title = comp.ceo_title or "CEO"
 
+        # Step 3.5: Executive Email Permutation & Mailbox Discovery
+        if not comp.personal_email and (comp.primary_decision_maker or comp.owner_name):
+            target_dm = comp.owner_name or comp.primary_decision_maker
+            target_site = comp.official_website or website_target or comp.original_website or ""
+            if target_site and target_site != "N/A":
+                exec_email, exec_provider, exec_conf = EmailPermutator.resolve_best_executive_email(target_dm, target_site)
+                if exec_email:
+                    comp.personal_email = exec_email
+                    comp.personal_email_status = "Permutation Verified"
+                    comp.personal_email_confidence = exec_conf
+                    if not comp.business_email:
+                        comp.business_email = exec_email
+                    evidences_to_add.append(Evidence(
+                        company_id=comp.id,
+                        field_name="Personal / Executive Email",
+                        discovered_value=exec_email,
+                        source_name="Email Permutator & MX Verifier",
+                        source_url=target_site,
+                        confidence_score=exec_conf,
+                        verification_status="Verified" if exec_conf >= 80 else "Unverified",
+                        notes=f"Pattern generated for {target_dm} and verified via {exec_provider} MX records."
+                    ))
+
         # Step 4: Email Verification & Mailbox Provider Detection
         check_email = comp.personal_email or comp.business_email
         if check_email:
@@ -292,6 +316,12 @@ class ResearchOrchestrator:
         comp.has_analytics = audit_results["has_analytics"]
         comp.seo_audit_score = audit_results["seo_audit_score"]
         comp.redesign_opportunity = audit_results["redesign_opportunity"]
+
+        # Visual Website Proof Screenshot
+        target_web = comp.official_website or website_target or comp.original_website or ""
+        if target_web and target_web != "N/A":
+            clean_shot_url = target_web if target_web.startswith("http") else f"https://{target_web}"
+            comp.website_screenshot_url = f"https://s0.wp.com/mshots/v1/{clean_shot_url}?w=800&h=600"
 
         comp_dict_pitch = {
             "owner_name": comp.owner_name,
@@ -656,6 +686,12 @@ class ResearchOrchestrator:
         comp.has_analytics = audit_results["has_analytics"]
         comp.seo_audit_score = audit_results["seo_audit_score"]
         comp.redesign_opportunity = audit_results["redesign_opportunity"]
+
+        # Visual Website Proof Screenshot
+        target_web = comp.official_website or website_target or comp.original_website or ""
+        if target_web and target_web != "N/A":
+            clean_shot_url = target_web if target_web.startswith("http") else f"https://{target_web}"
+            comp.website_screenshot_url = f"https://s0.wp.com/mshots/v1/{clean_shot_url}?w=800&h=600"
 
         comp_dict_pitch = {
             "owner_name": comp.owner_name,
