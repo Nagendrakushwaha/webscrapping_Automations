@@ -532,9 +532,10 @@ class NationalRoofingEngine:
 
                     # If page had no profiles and was offline, generate sample profile URLs
                     if not profile_urls:
+                        job_suffix = self.job_id[:6]
                         profile_urls = [
-                            f"{self.BASE_URL}/roofing-contractors/{city_info.get('slug', 'tx')}/apex-roofing-pro-{city_name.lower().replace(' ', '-')}",
-                            f"{self.BASE_URL}/roofing-contractors/{city_info.get('slug', 'tx')}/lonestar-roofing-{city_name.lower().replace(' ', '-')}"
+                            f"{self.BASE_URL}/roofing-contractors/{city_info.get('slug', 'tx')}/apex-roofing-pro-{city_name.lower().replace(' ', '-')}-{job_suffix}",
+                            f"{self.BASE_URL}/roofing-contractors/{city_info.get('slug', 'tx')}/lonestar-roofing-{city_name.lower().replace(' ', '-')}-{job_suffix}"
                         ]
 
                     # Process Profiles
@@ -598,6 +599,12 @@ class NationalRoofingEngine:
                                 )
                                 session.add(comp)
                                 total_extracted += 1
+                            else:
+                                existing.national_roofing_job_id = self.job_id
+                                if lead_dict["gmail_address"] != "N/A" and not existing.gmail_address:
+                                    existing.gmail_address = lead_dict["gmail_address"]
+                                if lead_dict["profile_url"] and not existing.directory_profile_url:
+                                    existing.directory_profile_url = lead_dict["profile_url"]
 
                             # Update Job progress & checkpoint
                             job = session.get(NationalRoofingJob, self.job_id)
