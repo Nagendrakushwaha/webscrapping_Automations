@@ -242,16 +242,17 @@ def test_job_execution_and_checkpoint():
 
     db.close()
     print("[OK] TEST 6 PASSED: Checkpoint persistence and DB insertion verified.")
-    return job_id
 
 
-def test_8_sheet_excel_and_csv_export(job_id: str):
+def test_8_sheet_excel_and_csv_export():
     print("\n" + "=" * 65)
     print("TEST 7: 8-Sheet OpenPyXL Excel & CSV Export")
     print("=" * 65)
 
     db = SessionLocal()
-    job = db.get(NationalRoofingJob, job_id)
+    job = db.query(NationalRoofingJob).order_by(NationalRoofingJob.created_at.desc()).first()
+    assert job is not None, "No NationalRoofingJob found in DB for export test."
+    job_id = job.id
     comps = db.query(Company).filter(Company.national_roofing_job_id == job_id).all()
 
     excel_path = export_national_roofing_job_to_excel(job, comps)
