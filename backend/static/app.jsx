@@ -109,6 +109,27 @@ function App() {
     require_phone: false
   });
 
+  // ------------------------------------------------------------------------
+  // NATIONAL ROOFING DIRECTORY STATE
+  // ------------------------------------------------------------------------
+  const [nationalJobId, setNationalJobId] = useState(null);
+  const [nationalJob, setNationalJob] = useState(null);
+  const [nationalHistory, setNationalHistory] = useState([]);
+  const [nationalLeads, setNationalLeads] = useState([]);
+  const [nationalTotalLeads, setNationalTotalLeads] = useState(0);
+  const [nationalPage, setNationalPage] = useState(1);
+  const [nationalTotalPages, setNationalTotalPages] = useState(1);
+  const [nationalSearch, setNationalSearch] = useState("");
+  const [nationalFilterCity, setNationalFilterCity] = useState("All");
+  const [nationalFilterQuick, setNationalFilterQuick] = useState("all"); // 'all' | 'gmail' | 'email' | 'phone' | 'website' | 'missing_website'
+  const [nationalState, setNationalState] = useState("Texas");
+  const [nationalStateCode, setNationalStateCode] = useState("TX");
+  const [nationalTargetLeads, setNationalTargetLeads] = useState(100);
+  const [nationalAvailableCities, setNationalAvailableCities] = useState([]);
+  const [nationalSelectedCities, setNationalSelectedCities] = useState([]);
+  const [nationalLoadingCities, setNationalLoadingCities] = useState(false);
+  const [nationalSelectedLeadIds, setNationalSelectedLeadIds] = useState([]);
+
   // Providers Selection
   const [discoveryProviders, setDiscoveryProviders] = useState({
     the_roofing_list: true,
@@ -138,6 +159,14 @@ function App() {
       }
       if (activeAutomationId) {
         refreshAutomationStatus(activeAutomationId);
+      }
+      if (nationalJobId && (nationalJob?.status === "running" || activeTab === "national_roofing")) {
+        apiFetch(`/api/national-roofing/jobs/${nationalJobId}`).then(j => {
+          setNationalJob(j);
+          if (j.status === "running" || j.status === "completed") {
+            loadNationalLeads(nationalJobId, nationalPage);
+          }
+        }).catch(() => {});
       }
     }, 2500);
 
@@ -236,6 +265,124 @@ function App() {
       loadAutomationLeads(automationId, automationLeadsPage);
     } catch (e) {
       console.error("Failed to refresh automation status:", e);
+    }
+  };
+
+  // ------------------------------------------------------------------------
+  // NATIONAL ROOFING DIRECTORY HANDLERS
+  // ------------------------------------------------------------------------
+  const loadNationalCities = async (st = nationalState) => {
+    setNationalLoadingCities(true);
+    try {
+      const data = await apiFetch(`/api/national-roofing/cities?state=${encodeURIComponent(st)}`);
+      setNationalAvailableCities(data.cities || []);
+    } catch (e) {
+      console.error("Failed to discover National Roofing cities:", e);
+    } finally {
+      setNationalLoadingCities(false);
+    }
+  };
+
+  const loadNationalJobs = async () => {
+    try {
+      const jobs = await apiFetch("/api/national-roofing/jobs");
+      setNationalHistory(jobs || []);
+      if (!nationalJobId && jobs && jobs.length > 0) {
+        setNationalJobId(jobs[0].id);
+        setNationalJob(jobs[0]);
+        loadNationalLeads(jobs[0].id, 1);
+      }
+    } catch (e) {
+      console.error("Failed to load National Roofing jobs:", e);
+    }
+  };
+
+  const loadNationalLeads = async (jobId = nationalJobId, page = 1) => {
+    if (!jobId) return;
+    try {
+      let url = `/api/national-roofing/jobs/${jobId}/leads?page=${page}&page_size=25`;
+      if (nationalSearch) url += `&search=${encodeURIComponent(nationalSearch)}`;
+      if (nationalFilterCity && nationalFilterCity !== "All") url += `&city=${encodeURIComponent(nationalFilterCity)}`;
+      if (nationalFilterQuick === "gmail") url += `&has_gmail=true`;
+      if (nationalFilterQuick === "email") url += `&has_email=true`;
+      if (nationalFilterQuick === "phone") url += `&has_phone=true`;
+      if (nationalFilterQuick === "website") url += `&has_website=true`;
+      if (nationalFilterQuick === "missing_website") url += `&missing_website=true`;
+
+      const data = await apiFetch(url);
+      setNationalLeads(data.leads || []);
+      setNationalTotalLeads(data.total || 0);
+      setNationalPage(data.page || 1);
+      setNationalTotalPages(data.total_pages || 1);
+      if (data.job) setNationalJob(data.job);
+    } catch (e) {
+      console.error("Failed to load National Roofing leads:", e);
+    }
+  };
+
+  const handleStartNationalScraping = async () => {
+    try {
+      const res = await apiFetch("/api/national-roofing/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          state: nationalState,
+          state_code: nationalStateCode,
+          cities: nationalSelectedCities,
+          target_leads: nationalTargetLeads
+        })
+      });
+      setNationalJobId(res.id);
+      setNationalJob(res);
+      showToast(`National Roofing Scraper Started! Target: ${nationalTargetLeads} in ${nationalState}`, "success");
+      loadNationalJobs();
+    } catch (e) {
+      showToast("Error starting scraper: " + e.message, "error");
+    }
+  };
+
+  const handlePauseNationalScraping = async () => {
+    if (!nationalJobId) return;
+    try {
+      const res = await apiFetch(`/api/national-roofing/jobs/${nationalJobId}/pause`, { method: "POST" });
+      setNationalJob(res);
+      showToast("Scraping paused. Checkpoint saved.", "info");
+    } catch (e) {
+      showToast("Error pausing: " + e.message, "error");
+    }
+  };
+
+  const handleResumeNationalScraping = async () => {
+    if (!nationalJobId) return;
+    try {
+      const res = await apiFetch(`/api/national-roofing/jobs/${nationalJobId}/resume`, { method: "POST" });
+      setNationalJob(res);
+      showToast("Scraping resumed from checkpoint.", "success");
+    } catch (e) {
+      showToast("Error resuming: " + e.message, "error");
+    }
+  };
+
+  const handleStopNationalScraping = async () => {
+    if (!nationalJobId) return;
+    if (!confirm("Are you sure you want to stop this scraping job?")) return;
+    try {
+      const res = await apiFetch(`/api/national-roofing/jobs/${nationalJobId}/stop`, { method: "POST" });
+      setNationalJob(res);
+      showToast("Scraping stopped.", "info");
+    } catch (e) {
+      showToast("Error stopping: " + e.message, "error");
+    }
+  };
+
+  const handleRetryFailedNational = async () => {
+    if (!nationalJobId) return;
+    try {
+      const res = await apiFetch(`/api/national-roofing/jobs/${nationalJobId}/retry-failed`, { method: "POST" });
+      setNationalJob(res);
+      showToast("Retrying failed contractor profiles.", "info");
+    } catch (e) {
+      showToast("Error retrying: " + e.message, "error");
     }
   };
 
@@ -640,6 +787,22 @@ function App() {
           >
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
             <span>🚀 Automated Lead Generation</span>
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab("national_roofing");
+              loadNationalJobs();
+              if (nationalAvailableCities.length === 0) loadNationalCities(nationalState);
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center space-x-1.5 ${
+              activeTab === "national_roofing"
+                ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-md shadow-orange-500/20"
+                : "text-slate-300 hover:text-white hover:bg-slate-900"
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+            <span>🏢 National Roofing Directory</span>
+            <span className="text-[9px] bg-amber-500/30 text-amber-200 px-1 py-0.2 rounded font-bold uppercase">New</span>
           </button>
           <button
             onClick={() => {
@@ -1551,6 +1714,539 @@ function App() {
                 )}
               </div>
             </div>
+          </div>
+        </main>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* TAB: NATIONAL ROOFING DIRECTORY                               */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === "national_roofing" && (
+        <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6">
+          {/* Header Banner */}
+          <div className="bg-gradient-to-r from-amber-950/60 via-slate-900 to-slate-900 border border-amber-800/40 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-96 h-96 bg-amber-500/5 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"></div>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+              <div>
+                <div className="flex items-center space-x-3 mb-1">
+                  <span className="text-2xl">🏢</span>
+                  <h2 className="text-xl font-black text-white tracking-tight">National Roofing Directory</h2>
+                  <span className="text-[10px] bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded border border-amber-500/40 uppercase tracking-wider">
+                    Dedicated Scraper
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+                  Discover, extract, enrich and export roofing contractor business information from <a href="https://www.nationalroofingdirectory.com/" target="_blank" rel="noreferrer" className="text-amber-400 hover:underline">National Roofing Directory</a>. Features automated city directory traversal, rel="next" multi-page pagination, strict official website validation, and dedicated <strong>@gmail.com extraction</strong>.
+                </p>
+                <div className="flex flex-wrap items-center gap-2 mt-3 text-[11px] text-slate-400">
+                  <span className="bg-slate-950/80 px-2.5 py-1 rounded-md border border-slate-800 text-slate-300">
+                    📍 Target: <strong className="text-white">{nationalState}</strong> (Reference: 10,107 Listings)
+                  </span>
+                  <span className="bg-slate-950/80 px-2.5 py-1 rounded-md border border-slate-800 text-slate-300">
+                    📧 Dedicated Gmail Extraction
+                  </span>
+                  <span className="bg-slate-950/80 px-2.5 py-1 rounded-md border border-slate-800 text-slate-300">
+                    🛡️ Strict Anti-Directory Validation
+                  </span>
+                  <span className="bg-slate-950/80 px-2.5 py-1 rounded-md border border-slate-800 text-slate-300">
+                    💾 Persistent Checkpoint Resume
+                  </span>
+                </div>
+              </div>
+
+              {nationalJobId && (
+                <div className="flex items-center space-x-2">
+                  <a
+                    href={`/api/national-roofing/jobs/${nationalJobId}/export/excel`}
+                    download
+                    className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-emerald-500/20 flex items-center space-x-1.5 transition"
+                  >
+                    <span>📊</span>
+                    <span>Export 8-Sheet XLSX</span>
+                  </a>
+                  <a
+                    href={`/api/national-roofing/jobs/${nationalJobId}/export/csv`}
+                    download
+                    className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition"
+                  >
+                    CSV
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Configuration and Live Progress Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left 5 Cols: Search & Location Configuration */}
+            <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-lg flex flex-col justify-between">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                  <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                    <span>⚙️</span>
+                    <span>Search & Location Configuration</span>
+                  </h3>
+                  <span className="text-[10px] text-amber-400 font-mono">USA / Multi-State</span>
+                </div>
+
+                {/* State Selection */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                    1. Select Target State:
+                  </label>
+                  <select
+                    value={nationalState}
+                    onChange={(e) => {
+                      const st = e.target.value;
+                      setNationalState(st);
+                      loadNationalCities(st);
+                    }}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-semibold"
+                  >
+                    <option value="Texas">Texas (TX) — Primary Hub (10,107 Listings)</option>
+                    <option value="Florida">Florida (FL)</option>
+                    <option value="California">California (CA)</option>
+                    <option value="Arizona">Arizona (AZ)</option>
+                    <option value="Georgia">Georgia (GA)</option>
+                    <option value="North Carolina">North Carolina (NC)</option>
+                    <option value="Ohio">Ohio (OH)</option>
+                    <option value="Pennsylvania">Pennsylvania (PA)</option>
+                    <option value="New York">New York (NY)</option>
+                    <option value="Illinois">Illinois (IL)</option>
+                    <option value="Colorado">Colorado (CO)</option>
+                    <option value="Tennessee">Tennessee (TN)</option>
+                  </select>
+                </div>
+
+                {/* City Discovery & Selection */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-bold text-slate-300">
+                      2. City Directory Pages ({nationalSelectedCities.length} Selected):
+                    </label>
+                    <div className="flex items-center space-x-2 text-[11px]">
+                      <button
+                        onClick={() => {
+                          if (nationalSelectedCities.length === nationalAvailableCities.length) {
+                            setNationalSelectedCities([]);
+                          } else {
+                            setNationalSelectedCities(nationalAvailableCities.map(c => c.city_name));
+                          }
+                        }}
+                        className="text-amber-400 hover:text-amber-300 underline font-semibold"
+                      >
+                        {nationalSelectedCities.length === nationalAvailableCities.length ? "Clear All" : "Select All"}
+                      </button>
+                      <button
+                        onClick={() => loadNationalCities(nationalState)}
+                        disabled={nationalLoadingCities}
+                        className="text-slate-400 hover:text-white"
+                        title="Re-discover cities from state hub"
+                      >
+                        {nationalLoadingCities ? "Scanning..." : "🔄 Refresh"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 max-h-40 overflow-y-auto custom-scrollbar space-y-1">
+                    {nationalAvailableCities.length === 0 ? (
+                      <div className="text-center py-4 text-xs text-slate-500">
+                        {nationalLoadingCities ? "Discovering city directory links from state page..." : "Click Refresh to discover available city pages."}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-1.5 text-xs">
+                        {nationalAvailableCities.map((city) => {
+                          const isChecked = nationalSelectedCities.includes(city.city_name);
+                          return (
+                            <label
+                              key={city.city_name}
+                              className={`flex items-center space-x-2 px-2 py-1.5 rounded-lg cursor-pointer transition ${
+                                isChecked ? "bg-amber-950/40 text-amber-200 border border-amber-800/40" : "hover:bg-slate-900 text-slate-400"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => {
+                                  if (isChecked) {
+                                    setNationalSelectedCities(nationalSelectedCities.filter(c => c !== city.city_name));
+                                  } else {
+                                    setNationalSelectedCities([...nationalSelectedCities, city.city_name]);
+                                  }
+                                }}
+                                className="rounded border-slate-700 text-amber-600 focus:ring-0"
+                              />
+                              <span className="truncate">{city.city_name}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Target Profiles Requirement */}
+                <div>
+                  <div className="flex items-center justify-between text-xs mb-1.5">
+                    <span className="font-bold text-slate-300">Target Contractor Profiles:</span>
+                    <span className="font-mono text-amber-400 font-bold">{nationalTargetLeads} Profiles</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={25}
+                    max={500}
+                    step={25}
+                    value={nationalTargetLeads}
+                    onChange={(e) => setNationalTargetLeads(Number(e.target.value))}
+                    className="w-full h-1.5 bg-slate-950 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                  />
+                  <div className="flex justify-between text-[10px] text-slate-500 mt-1 font-mono">
+                    <span>25</span>
+                    <span>100</span>
+                    <span>250</span>
+                    <span>500</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Controls */}
+              <div className="pt-4 border-t border-slate-800 space-y-2">
+                {!nationalJob || nationalJob.status !== "running" ? (
+                  <button
+                    onClick={handleStartNationalScraping}
+                    className="w-full py-2.5 bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 hover:from-amber-500 hover:to-orange-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-orange-500/20 flex items-center justify-center space-x-2 transition"
+                  >
+                    <span>🚀</span>
+                    <span>Start National Directory Scraping</span>
+                  </button>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={handlePauseNationalScraping}
+                      className="py-2.5 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-800/50 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 transition"
+                    >
+                      <span>⏸️</span>
+                      <span>Pause Scrape</span>
+                    </button>
+                    <button
+                      onClick={handleStopNationalScraping}
+                      className="py-2.5 bg-red-950/60 hover:bg-red-900 text-red-200 border border-red-800/60 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 transition"
+                    >
+                      <span>⏹️</span>
+                      <span>Stop</span>
+                    </button>
+                  </div>
+                )}
+
+                {nationalJob && nationalJob.status === "paused" && (
+                  <button
+                    onClick={handleResumeNationalScraping}
+                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5"
+                  >
+                    <span>▶️</span>
+                    <span>Resume Scraping From Checkpoint</span>
+                  </button>
+                )}
+
+                {nationalJob && nationalJob.failed_profiles_count > 0 && (
+                  <button
+                    onClick={handleRetryFailedNational}
+                    className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl text-xs font-semibold transition"
+                  >
+                    🔄 Retry {nationalJob.failed_profiles_count} Failed Records
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Right 7 Cols: Live Progress Dashboard */}
+            <div className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-lg">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div className="flex items-center space-x-2">
+                  <h3 className="text-sm font-bold text-white">Live Progress Dashboard</h3>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase border ${
+                    !nationalJob ? "bg-slate-800 text-slate-400 border-slate-700" :
+                    nationalJob.status === "running" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 animate-pulse" :
+                    nationalJob.status === "paused" ? "bg-amber-500/20 text-amber-300 border-amber-500/40" :
+                    nationalJob.status === "completed" ? "bg-blue-500/20 text-blue-300 border-blue-500/40" :
+                    "bg-red-500/20 text-red-300 border-red-500/40"
+                  }`}>
+                    {nationalJob ? nationalJob.status : "Idle"}
+                  </span>
+                </div>
+                {nationalJob?.current_city && (
+                  <span className="text-xs text-amber-400 font-semibold">
+                    📍 {nationalJob.current_city}, {nationalJob.state_code || "TX"}
+                  </span>
+                )}
+              </div>
+
+              {/* Stage & Progress Bar */}
+              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-400 font-medium truncate max-w-md">
+                    {nationalJob?.current_stage || "Ready to discover contractors from National Roofing Directory."}
+                  </span>
+                  <span className="text-amber-400 font-mono font-bold">
+                    {nationalJob?.profiles_processed || 0} / {nationalTargetLeads}
+                  </span>
+                </div>
+                <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden border border-slate-800">
+                  <div
+                    className="bg-gradient-to-r from-amber-500 to-orange-500 h-full transition-all duration-500"
+                    style={{
+                      width: `${Math.min(100, Math.round(((nationalJob?.profiles_processed || 0) / (nationalTargetLeads || 100)) * 100))}%`
+                    }}
+                  ></div>
+                </div>
+              </div>
+
+              {/* 12 Real-Time Metrics Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                  <div className="text-base font-black text-white">{nationalJob?.city_pages_discovered || 0}</div>
+                  <div className="text-[10px] text-slate-500 uppercase font-semibold">City Pages Discovered</div>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                  <div className="text-base font-black text-amber-400">{nationalJob?.city_pages_completed || 0}</div>
+                  <div className="text-[10px] text-slate-500 uppercase font-semibold">City Pages Completed</div>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                  <div className="text-base font-black text-white">{nationalJob?.pagination_pages_visited || 0}</div>
+                  <div className="text-[10px] text-slate-500 uppercase font-semibold">Pagination Pages</div>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                  <div className="text-base font-black text-blue-400">{nationalJob?.profile_urls_discovered || 0}</div>
+                  <div className="text-[10px] text-slate-500 uppercase font-semibold">Profiles Discovered</div>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                  <div className="text-base font-black text-white">{nationalJob?.unique_profiles_count || 0}</div>
+                  <div className="text-[10px] text-slate-500 uppercase font-semibold">Unique Profiles</div>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                  <div className="text-base font-black text-emerald-400">{nationalJob?.profiles_processed || 0}</div>
+                  <div className="text-[10px] text-slate-500 uppercase font-semibold">Profiles Processed</div>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                  <div className="text-base font-black text-slate-300">{nationalJob?.profiles_remaining || 0}</div>
+                  <div className="text-[10px] text-slate-500 uppercase font-semibold">Profiles Remaining</div>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                  <div className="text-base font-black text-rose-400">{nationalJob?.duplicate_count || 0}</div>
+                  <div className="text-[10px] text-slate-500 uppercase font-semibold">Duplicates Skipped</div>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                  <div className="text-base font-black text-cyan-400">{nationalJob?.emails_found || 0}</div>
+                  <div className="text-[10px] text-slate-500 uppercase font-semibold">Public Emails</div>
+                </div>
+                <div className="bg-gradient-to-b from-amber-950/40 to-slate-950 p-2.5 rounded-xl border border-amber-500/40 shadow-sm">
+                  <div className="text-base font-black text-amber-300">{nationalJob?.gmail_found || 0}</div>
+                  <div className="text-[10px] text-amber-400 uppercase font-bold">Gmail Addresses</div>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                  <div className="text-base font-black text-indigo-400">{nationalJob?.phones_found || 0}</div>
+                  <div className="text-[10px] text-slate-500 uppercase font-semibold">Phone Numbers</div>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                  <div className="text-base font-black text-teal-400">{nationalJob?.websites_found || 0}</div>
+                  <div className="text-[10px] text-slate-500 uppercase font-semibold">Company Websites</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Dedicated Results Table */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden space-y-4 p-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+              <div className="flex items-center space-x-2">
+                <h3 className="text-base font-bold text-white">Discovered Contractors</h3>
+                <span className="text-xs bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono font-bold">
+                  {nationalTotalLeads} Records
+                </span>
+              </div>
+
+              {/* Filters Toolbar */}
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                {/* Search */}
+                <input
+                  type="text"
+                  placeholder="Search company, owner, or city..."
+                  value={nationalSearch}
+                  onChange={(e) => {
+                    setNationalSearch(e.target.value);
+                    loadNationalLeads(nationalJobId, 1);
+                  }}
+                  className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 w-56"
+                />
+
+                {/* City Filter */}
+                <select
+                  value={nationalFilterCity}
+                  onChange={(e) => {
+                    setNationalFilterCity(e.target.value);
+                    loadNationalLeads(nationalJobId, 1);
+                  }}
+                  className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                >
+                  <option value="All">All Cities</option>
+                  {nationalAvailableCities.map(c => (
+                    <option key={c.city_name} value={c.city_name}>{c.city_name}</option>
+                  ))}
+                </select>
+
+                {/* Quick Filters */}
+                {[
+                  { key: "all", label: "All" },
+                  { key: "gmail", label: "📧 With Gmail" },
+                  { key: "email", label: "✉️ With Email" },
+                  { key: "phone", label: "📞 With Phone" },
+                  { key: "website", label: "🌐 With Website" },
+                  { key: "missing_website", label: "⚠️ Missing Website" }
+                ].map(f => (
+                  <button
+                    key={f.key}
+                    onClick={() => {
+                      setNationalFilterQuick(f.key);
+                      loadNationalLeads(nationalJobId, 1);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
+                      nationalFilterQuick === f.key
+                        ? "bg-amber-600 text-white"
+                        : "bg-slate-950 text-slate-400 hover:text-white border border-slate-800"
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="w-full text-left text-xs whitespace-nowrap">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/60 font-semibold uppercase text-[10px]">
+                    <th className="py-2.5 px-3">Company Name</th>
+                    <th className="py-2.5 px-3">Owner / Contact</th>
+                    <th className="py-2.5 px-3">Trades / Services</th>
+                    <th className="py-2.5 px-3">City, State</th>
+                    <th className="py-2.5 px-3">ZIP Code</th>
+                    <th className="py-2.5 px-3">Business Address</th>
+                    <th className="py-2.5 px-3">Phone</th>
+                    <th className="py-2.5 px-3">Email</th>
+                    <th className="py-2.5 px-3 text-amber-300">Gmail Address</th>
+                    <th className="py-2.5 px-3">Company Website URL</th>
+                    <th className="py-2.5 px-3">Profile URL</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {nationalLeads.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="py-8 text-center text-slate-500">
+                        {nationalJob ? "No contractor records match your filter criteria." : "Start a National Roofing Directory scraping run to extract contractor data."}
+                      </td>
+                    </tr>
+                  ) : (
+                    nationalLeads.map((lead) => (
+                      <tr key={lead.id} className="hover:bg-slate-800/40 transition">
+                        <td className="py-2.5 px-3 font-bold text-white">
+                          {lead.name}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-300">
+                          {lead.owner_name}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-400">
+                          {lead.trades}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-300">
+                          {lead.city}, {lead.state}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-400 font-mono">
+                          {lead.zip_code}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-400 max-w-xs truncate" title={lead.address}>
+                          {lead.address}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-slate-300">
+                          {lead.phone}
+                        </td>
+                        <td className="py-2.5 px-3 text-cyan-300">
+                          {lead.email !== "N/A" ? (
+                            <a href={`mailto:${lead.email}`} className="hover:underline">{lead.email}</a>
+                          ) : (
+                            <span className="text-slate-600">N/A</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 font-semibold">
+                          {lead.gmail_address !== "N/A" ? (
+                            <span className="inline-flex items-center space-x-1 text-amber-300 bg-amber-950/50 px-2 py-0.5 rounded border border-amber-800/50">
+                              <span>📧</span>
+                              <span>{lead.gmail_address}</span>
+                            </span>
+                          ) : (
+                            <span className="text-slate-600">N/A</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          {lead.website !== "N/A" ? (
+                            <a
+                              href={lead.website}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-blue-400 hover:text-blue-300 hover:underline flex items-center space-x-1"
+                            >
+                              <span>🌐</span>
+                              <span className="max-w-[150px] truncate">{lead.website.replace(/^https?:\/\//, '')}</span>
+                            </a>
+                          ) : (
+                            <span className="text-slate-600">N/A</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          {lead.profile_url !== "N/A" ? (
+                            <a
+                              href={lead.profile_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-slate-400 hover:text-white underline text-[11px]"
+                            >
+                              View Profile ↗
+                            </a>
+                          ) : (
+                            <span className="text-slate-600">N/A</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Controls */}
+            {nationalTotalPages > 1 && (
+              <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs">
+                <span className="text-slate-400">
+                  Showing page <strong className="text-white">{nationalPage}</strong> of <strong className="text-white">{nationalTotalPages}</strong> ({nationalTotalLeads} total contractors)
+                </span>
+                <div className="flex items-center space-x-2">
+                  <button
+                    disabled={nationalPage <= 1}
+                    onClick={() => loadNationalLeads(nationalJobId, nationalPage - 1)}
+                    className="px-3 py-1 bg-slate-950 border border-slate-800 rounded disabled:opacity-40 text-slate-300 hover:text-white"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    disabled={nationalPage >= nationalTotalPages}
+                    onClick={() => loadNationalLeads(nationalJobId, nationalPage + 1)}
+                    className="px-3 py-1 bg-slate-950 border border-slate-800 rounded disabled:opacity-40 text-slate-300 hover:text-white"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </main>
       )}

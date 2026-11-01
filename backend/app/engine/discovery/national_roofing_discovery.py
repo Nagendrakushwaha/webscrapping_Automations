@@ -23,7 +23,7 @@ import httpx
 from bs4 import BeautifulSoup
 from sqlalchemy.orm import Session
 
-from ...models import NationalRoofingJob, Company
+from ...models import NationalRoofingJob, Company, Job
 
 logger = logging.getLogger(__name__)
 
@@ -440,6 +440,17 @@ class NationalRoofingEngine:
             if not job:
                 return
 
+            parent_job_id = f"job_nrd_{self.job_id[:8]}"
+            p_job = session.get(Job, parent_job_id)
+            if not p_job:
+                p_job = Job(
+                    id=parent_job_id,
+                    filename=f"National_Roofing_{(job.state or 'Texas').replace(' ', '_')}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
+                    total_companies=0,
+                    status="processing"
+                )
+                session.add(p_job)
+
             job.status = "running"
             job.current_stage = "Discovering City Directories..."
             session.commit()
@@ -556,6 +567,7 @@ class NationalRoofingEngine:
 
                             if not existing:
                                 comp = Company(
+                                    job_id=parent_job_id,
                                     national_roofing_job_id=self.job_id,
                                     discovery_provider="National Roofing Directory",
                                     directory_profile_url=lead_dict["profile_url"],
