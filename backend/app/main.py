@@ -10,7 +10,8 @@ from .config import settings, BASE_DIR
 from .database import init_db
 from .api import (
     jobs_router, companies_router, export_router, 
-    settings_router, locations_router, automation_router
+    settings_router, locations_router, automation_router,
+    national_roofing_router
 )
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -45,6 +46,7 @@ app.include_router(export_router)
 app.include_router(settings_router)
 app.include_router(locations_router)
 app.include_router(automation_router)
+app.include_router(national_roofing_router)
 
 # Mount static files if present
 if STATIC_DIR.exists():

@@ -109,6 +109,27 @@ function App() {
     require_phone: false
   });
 
+  // ------------------------------------------------------------------------
+  // NATIONAL ROOFING DIRECTORY STATE
+  // ------------------------------------------------------------------------
+  const [nationalJobId, setNationalJobId] = useState(null);
+  const [nationalJob, setNationalJob] = useState(null);
+  const [nationalHistory, setNationalHistory] = useState([]);
+  const [nationalLeads, setNationalLeads] = useState([]);
+  const [nationalTotalLeads, setNationalTotalLeads] = useState(0);
+  const [nationalPage, setNationalPage] = useState(1);
+  const [nationalTotalPages, setNationalTotalPages] = useState(1);
+  const [nationalSearch, setNationalSearch] = useState("");
+  const [nationalFilterCity, setNationalFilterCity] = useState("All");
+  const [nationalFilterQuick, setNationalFilterQuick] = useState("all"); // 'all' | 'gmail' | 'email' | 'phone' | 'website' | 'missing_website'
+  const [nationalState, setNationalState] = useState("Texas");
+  const [nationalStateCode, setNationalStateCode] = useState("TX");
+  const [nationalTargetLeads, setNationalTargetLeads] = useState(100);
+  const [nationalAvailableCities, setNationalAvailableCities] = useState([]);
+  const [nationalSelectedCities, setNationalSelectedCities] = useState([]);
+  const [nationalLoadingCities, setNationalLoadingCities] = useState(false);
+  const [nationalSelectedLeadIds, setNationalSelectedLeadIds] = useState([]);
+
   // Providers Selection
   const [discoveryProviders, setDiscoveryProviders] = useState({
     the_roofing_list: true,
@@ -138,6 +159,14 @@ function App() {
       }
       if (activeAutomationId) {
         refreshAutomationStatus(activeAutomationId);
+      }
+      if (nationalJobId && (nationalJob?.status === "running" || activeTab === "national_roofing")) {
+        apiFetch(`/api/national-roofing/jobs/${nationalJobId}`).then(j => {
+          setNationalJob(j);
+          if (j.status === "running" || j.status === "completed") {
+            loadNationalLeads(nationalJobId, nationalPage);
+          }
+        }).catch(() => {});
       }
     }, 2500);
 
@@ -236,6 +265,124 @@ function App() {
       loadAutomationLeads(automationId, automationLeadsPage);
     } catch (e) {
       console.error("Failed to refresh automation status:", e);
+    }
+  };
+
+  // ------------------------------------------------------------------------
+  // NATIONAL ROOFING DIRECTORY HANDLERS
+  // ------------------------------------------------------------------------
+  const loadNationalCities = async (st = nationalState) => {
+    setNationalLoadingCities(true);
+    try {
+      const data = await apiFetch(`/api/national-roofing/cities?state=${encodeURIComponent(st)}`);
+      setNationalAvailableCities(data.cities || []);
+    } catch (e) {
+      console.error("Failed to discover National Roofing cities:", e);
+    } finally {
+      setNationalLoadingCities(false);
+    }
+  };
+
+  const loadNationalJobs = async () => {
+    try {
+      const jobs = await apiFetch("/api/national-roofing/jobs");
+      setNationalHistory(jobs || []);
+      if (!nationalJobId && jobs && jobs.length > 0) {
+        setNationalJobId(jobs[0].id);
+        setNationalJob(jobs[0]);
+        loadNationalLeads(jobs[0].id, 1);
+      }
+    } catch (e) {
+      console.error("Failed to load National Roofing jobs:", e);
+    }
+  };
+
+  const loadNationalLeads = async (jobId = nationalJobId, page = 1) => {
+    if (!jobId) return;
+    try {
+      let url = `/api/national-roofing/jobs/${jobId}/leads?page=${page}&page_size=25`;
+      if (nationalSearch) url += `&search=${encodeURIComponent(nationalSearch)}`;
+      if (nationalFilterCity && nationalFilterCity !== "All") url += `&city=${encodeURIComponent(nationalFilterCity)}`;
+      if (nationalFilterQuick === "gmail") url += `&has_gmail=true`;
+      if (nationalFilterQuick === "email") url += `&has_email=true`;
+      if (nationalFilterQuick === "phone") url += `&has_phone=true`;
+      if (nationalFilterQuick === "website") url += `&has_website=true`;
+      if (nationalFilterQuick === "missing_website") url += `&missing_website=true`;
+
+      const data = await apiFetch(url);
+      setNationalLeads(data.leads || []);
+      setNationalTotalLeads(data.total || 0);
+      setNationalPage(data.page || 1);
+      setNationalTotalPages(data.total_pages || 1);
+      if (data.job) setNationalJob(data.job);
+    } catch (e) {
+      console.error("Failed to load National Roofing leads:", e);
+    }
+  };
+
+  const handleStartNationalScraping = async () => {
+    try {
+      const res = await apiFetch("/api/national-roofing/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          state: nationalState,
+          state_code: nationalStateCode,
+          cities: nationalSelectedCities,
+          target_leads: nationalTargetLeads
+        })
+      });
+      setNationalJobId(res.id);
+      setNationalJob(res);
+      showToast(`National Roofing Scraper Started! Target: ${nationalTargetLeads} in ${nationalState}`, "success");
+      loadNationalJobs();
+    } catch (e) {
+      showToast("Error starting scraper: " + e.message, "error");
+    }
+  };
+
+  const handlePauseNationalScraping = async () => {
+    if (!nationalJobId) return;
+    try {
+      const res = await apiFetch(`/api/national-roofing/jobs/${nationalJobId}/pause`, { method: "POST" });
+      setNationalJob(res);
+      showToast("Scraping paused. Checkpoint saved.", "info");
+    } catch (e) {
+      showToast("Error pausing: " + e.message, "error");
+    }
+  };
+
+  const handleResumeNationalScraping = async () => {
+    if (!nationalJobId) return;
+    try {
+      const res = await apiFetch(`/api/national-roofing/jobs/${nationalJobId}/resume`, { method: "POST" });
+      setNationalJob(res);
+      showToast("Scraping resumed from checkpoint.", "success");
+    } catch (e) {
+      showToast("Error resuming: " + e.message, "error");
+    }
+  };
+
+  const handleStopNationalScraping = async () => {
+    if (!nationalJobId) return;
+    if (!confirm("Are you sure you want to stop this scraping job?")) return;
+    try {
+      const res = await apiFetch(`/api/national-roofing/jobs/${nationalJobId}/stop`, { method: "POST" });
+      setNationalJob(res);
+      showToast("Scraping stopped.", "info");
+    } catch (e) {
+      showToast("Error stopping: " + e.message, "error");
+    }
+  };
+
+  const handleRetryFailedNational = async () => {
+    if (!nationalJobId) return;
+    try {
+      const res = await apiFetch(`/api/national-roofing/jobs/${nationalJobId}/retry-failed`, { method: "POST" });
+      setNationalJob(res);
+      showToast("Retrying failed contractor profiles.", "info");
+    } catch (e) {
+      showToast("Error retrying: " + e.message, "error");
     }
   };
 
@@ -640,6 +787,22 @@ function App() {
           >
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
             <span>🚀 Automated Lead Generation</span>
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab("national_roofing");
+              loadNationalJobs();
+              if (nationalAvailableCities.length === 0) loadNationalCities(nationalState);
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center space-x-1.5 ${
+              activeTab === "national_roofing"
+                ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-md shadow-orange-500/20"
+                : "text-slate-300 hover:text-white hover:bg-slate-900"
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+            <span>🏢 National Roofing Directory</span>
+            <span className="text-[9px] bg-amber-500/30 text-amber-200 px-1 py-0.2 rounded font-bold uppercase">New</span>
           </button>
           <button
             onClick={() => {
