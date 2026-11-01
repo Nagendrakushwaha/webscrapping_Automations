@@ -7,7 +7,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import pandas as pd
 from ..config import EXPORT_DIR
-from ..models import Job, Company, Evidence, ManualReview, AutomationJob
+from ..models import Job, Company, Evidence, ManualReview, AutomationJob, NationalRoofingJob
 
 HEADER_FILL = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
 HEADER_FONT = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
@@ -329,6 +329,221 @@ def export_job_to_csv(job: Job, companies: list[Company]) -> Path:
     return export_path
 
 
+def export_national_roofing_job_to_excel(job: NationalRoofingJob, companies: list[Company]) -> Path:
+    """
+    Generates an 8-sheet OpenPyXL Excel workbook for National Roofing Directory scraping results.
+    Sheets:
+    1. {State} Roofing Leads
+    2. City Summary
+    3. Scrape Summary
+    4. Gmail Found
+    5. Emails Found
+    6. Websites Found
+    7. Missing Websites
+    8. Failed Profiles
+    """
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)  # Remove default blank sheet
+
+    state_name = (job.state or "Texas").strip()
+    main_sheet_title = f"{state_name} Roofing Leads"[:31]
+
+    # Common Table Headers
+    lead_headers = [
+        "Company Name", "Owner / Contact Name", "Trades / Services", "City", "State",
+        "ZIP Code", "Business Address", "Phone", "Email", "Gmail Address",
+        "Company Website URL", "Website Status", "Profile URL", "Verification Status"
+    ]
+
+    def build_lead_row(c: Company) -> list[Any]:
+        return [
+            c.official_name or c.original_name or "N/A",
+            c.owner_name or "N/A",
+            c.trades or "Roofing Contractors",
+            c.city or "N/A",
+            c.state or "TX",
+            c.zip_code or "N/A",
+            c.address or "N/A",
+            c.business_phone or "N/A",
+            c.business_email or "N/A",
+            c.gmail_address or "N/A",
+            c.official_website or "N/A",
+            c.website_status or "No Website Found",
+            c.directory_profile_url or "N/A",
+            c.overall_verification_status or "Unverified"
+        ]
+
+    # ==========================================
+    # SHEET 1: {State} Roofing Leads
+    # ==========================================
+    ws_main = wb.create_sheet(title=main_sheet_title)
+    ws_main.append(lead_headers)
+    for c in companies:
+        ws_main.append(build_lead_row(c))
+    style_header_row(ws_main, len(lead_headers))
+    auto_fit_columns(ws_main)
+
+    # ==========================================
+    # SHEET 2: City Summary
+    # ==========================================
+    ws_city = wb.create_sheet(title="City Summary")
+    city_headers = ["City", "Total Contractors", "Emails Found", "Gmail Found", "Websites Found", "Missing Websites"]
+    ws_city.append(city_headers)
+
+    city_counts: dict[str, dict[str, int]] = {}
+    for c in companies:
+        c_name = c.city or "Unknown"
+        if c_name not in city_counts:
+            city_counts[c_name] = {"total": 0, "emails": 0, "gmail": 0, "websites": 0, "missing_web": 0}
+        city_counts[c_name]["total"] += 1
+        if c.business_email and c.business_email != "N/A":
+            city_counts[c_name]["emails"] += 1
+        if c.gmail_address and c.gmail_address != "N/A":
+            city_counts[c_name]["gmail"] += 1
+        if c.official_website and c.official_website != "N/A":
+            city_counts[c_name]["websites"] += 1
+        else:
+            city_counts[c_name]["missing_web"] += 1
+
+    for c_name, stats in sorted(city_counts.items()):
+        ws_city.append([c_name, stats["total"], stats["emails"], stats["gmail"], stats["websites"], stats["missing_web"]])
+    style_header_row(ws_city, len(city_headers))
+    auto_fit_columns(ws_city)
+
+    # ==========================================
+    # SHEET 3: Scrape Summary
+    # ==========================================
+    ws_summary = wb.create_sheet(title="Scrape Summary")
+    ws_summary.append(["National Roofing Directory Scrape Summary", "Value"])
+
+    missing_web_count = sum(1 for c in companies if not c.official_website or c.official_website == "N/A")
+
+    summary_rows = [
+        ("Directory Source", "National Roofing Directory (https://www.nationalroofingdirectory.com/)"),
+        ("Selected State", state_name),
+        ("City Pages Discovered", job.city_pages_discovered),
+        ("City Pages Completed", job.city_pages_completed),
+        ("Unique Profile URLs Discovered", job.unique_profiles_count or len(companies)),
+        ("Profiles Successfully Processed", job.profiles_processed or len(companies)),
+        ("Profiles with Phone", job.phones_found or sum(1 for c in companies if c.business_phone and c.business_phone != "N/A")),
+        ("Profiles with Public Email", job.emails_found or sum(1 for c in companies if c.business_email and c.business_email != "N/A")),
+        ("Profiles with Gmail Addresses", job.gmail_found or sum(1 for c in companies if c.gmail_address and c.gmail_address != "N/A")),
+        ("Profiles with Company Websites", job.websites_found or sum(1 for c in companies if c.official_website and c.official_website != "N/A")),
+        ("Profiles without Websites", missing_web_count),
+        ("Failed Profile URLs", job.failed_profiles_count),
+        ("Execution Status", job.status.upper()),
+        ("Start Time", str(job.start_time) if job.start_time else "N/A"),
+        ("End Time", str(job.end_time) if job.end_time else "In Progress"),
+        ("Export Generated At", datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"))
+    ]
+    for k, v in summary_rows:
+        ws_summary.append([k, v])
+    style_header_row(ws_summary, 2)
+    auto_fit_columns(ws_summary, min_width=25, max_width=65)
+
+    # ==========================================
+    # SHEET 4: Gmail Found
+    # ==========================================
+    ws_gmail = wb.create_sheet(title="Gmail Found")
+    ws_gmail.append(lead_headers)
+    for c in companies:
+        if c.gmail_address and c.gmail_address != "N/A":
+            ws_gmail.append(build_lead_row(c))
+    style_header_row(ws_gmail, len(lead_headers))
+    auto_fit_columns(ws_gmail)
+
+    # ==========================================
+    # SHEET 5: Emails Found
+    # ==========================================
+    ws_emails = wb.create_sheet(title="Emails Found")
+    ws_emails.append(lead_headers)
+    for c in companies:
+        has_biz = bool(c.business_email and c.business_email != "N/A")
+        has_gm = bool(c.gmail_address and c.gmail_address != "N/A")
+        if has_biz or has_gm:
+            ws_emails.append(build_lead_row(c))
+    style_header_row(ws_emails, len(lead_headers))
+    auto_fit_columns(ws_emails)
+
+    # ==========================================
+    # SHEET 6: Websites Found
+    # ==========================================
+    ws_web = wb.create_sheet(title="Websites Found")
+    ws_web.append(lead_headers)
+    for c in companies:
+        if c.official_website and c.official_website != "N/A":
+            ws_web.append(build_lead_row(c))
+    style_header_row(ws_web, len(lead_headers))
+    auto_fit_columns(ws_web)
+
+    # ==========================================
+    # SHEET 7: Missing Websites
+    # ==========================================
+    ws_missing = wb.create_sheet(title="Missing Websites")
+    ws_missing.append(lead_headers)
+    for c in companies:
+        if not c.official_website or c.official_website == "N/A":
+            ws_missing.append(build_lead_row(c))
+    style_header_row(ws_missing, len(lead_headers))
+    auto_fit_columns(ws_missing)
+
+    # ==========================================
+    # SHEET 8: Failed Profiles
+    # ==========================================
+    ws_failed = wb.create_sheet(title="Failed Profiles")
+    ws_failed.append(["Profile URL", "Failure Reason", "Timestamp"])
+    
+    # Load failed profiles from checkpoint_json
+    try:
+        cp = json.loads(job.checkpoint_json or "{}")
+        failed_list = cp.get("failed_urls", [])
+        for f_url in failed_list:
+            ws_failed.append([f_url, "HTTP 404 / Parse Error", datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")])
+    except Exception:
+        pass
+    style_header_row(ws_failed, 3)
+    auto_fit_columns(ws_failed)
+
+    # Save to file
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    clean_state = state_name.replace(" ", "_")
+    export_filename = f"National_Roofing_{clean_state}_{timestamp}.xlsx"
+    export_path = EXPORT_DIR / export_filename
+    wb.save(export_path)
+    return export_path
+
+
+def export_national_roofing_job_to_csv(job: NationalRoofingJob, companies: list[Company]) -> Path:
+    """Exports National Roofing Directory results to CSV."""
+    data = []
+    for c in companies:
+        data.append({
+            "Company Name": c.official_name or c.original_name or "N/A",
+            "Owner / Contact Name": c.owner_name or "N/A",
+            "Trades / Services": c.trades or "Roofing Contractors",
+            "City": c.city or "N/A",
+            "State": c.state or "TX",
+            "ZIP Code": c.zip_code or "N/A",
+            "Business Address": c.address or "N/A",
+            "Phone": c.business_phone or "N/A",
+            "Email": c.business_email or "N/A",
+            "Gmail Address": c.gmail_address or "N/A",
+            "Company Website URL": c.official_website or "N/A",
+            "Website Status": c.website_status or "No Website Found",
+            "Profile URL": c.directory_profile_url or "N/A",
+            "Verification Status": c.overall_verification_status or "Unverified"
+        })
+
+    df = pd.DataFrame(data)
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    clean_state = (job.state or "Texas").replace(" ", "_")
+    export_filename = f"National_Roofing_{clean_state}_{timestamp}.csv"
+    export_path = EXPORT_DIR / export_filename
+    df.to_csv(export_path, index=False, encoding="utf-8-sig")
+    return export_path
+
+
+
 def export_automation_to_excel(auto_job: AutomationJob, companies: list[Company]) -> Path:
     """
     Exports Automated Lead Generation Run into a professional 6-Worksheet Excel Workbook:
@@ -536,5 +751,220 @@ def export_automation_to_csv(auto_job: AutomationJob, companies: list[Company]) 
     export_path = EXPORT_DIR / export_filename
     df.to_csv(export_path, index=False, encoding="utf-8-sig")
     return export_path
+
+
+def export_national_roofing_job_to_excel(job: NationalRoofingJob, companies: list[Company]) -> Path:
+    """
+    Generates an 8-sheet OpenPyXL Excel workbook for National Roofing Directory scraping results.
+    Sheets:
+    1. {State} Roofing Leads
+    2. City Summary
+    3. Scrape Summary
+    4. Gmail Found
+    5. Emails Found
+    6. Websites Found
+    7. Missing Websites
+    8. Failed Profiles
+    """
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)  # Remove default blank sheet
+
+    state_name = (job.state or "Texas").strip()
+    main_sheet_title = f"{state_name} Roofing Leads"[:31]
+
+    # Common Table Headers
+    lead_headers = [
+        "Company Name", "Owner / Contact Name", "Trades / Services", "City", "State",
+        "ZIP Code", "Business Address", "Phone", "Email", "Gmail Address",
+        "Company Website URL", "Website Status", "Profile URL", "Verification Status"
+    ]
+
+    def build_lead_row(c: Company) -> list[Any]:
+        return [
+            c.official_name or c.original_name or "N/A",
+            c.owner_name or "N/A",
+            c.trades or "Roofing Contractors",
+            c.city or "N/A",
+            c.state or "TX",
+            c.zip_code or "N/A",
+            c.address or "N/A",
+            c.business_phone or "N/A",
+            c.business_email or "N/A",
+            c.gmail_address or "N/A",
+            c.official_website or "N/A",
+            c.website_status or "No Website Found",
+            c.directory_profile_url or "N/A",
+            c.overall_verification_status or "Unverified"
+        ]
+
+    # ==========================================
+    # SHEET 1: {State} Roofing Leads
+    # ==========================================
+    ws_main = wb.create_sheet(title=main_sheet_title)
+    ws_main.append(lead_headers)
+    for c in companies:
+        ws_main.append(build_lead_row(c))
+    style_header_row(ws_main, len(lead_headers))
+    auto_fit_columns(ws_main)
+
+    # ==========================================
+    # SHEET 2: City Summary
+    # ==========================================
+    ws_city = wb.create_sheet(title="City Summary")
+    city_headers = ["City", "Total Contractors", "Emails Found", "Gmail Found", "Websites Found", "Missing Websites"]
+    ws_city.append(city_headers)
+
+    city_counts: dict[str, dict[str, int]] = {}
+    for c in companies:
+        c_name = c.city or "Unknown"
+        if c_name not in city_counts:
+            city_counts[c_name] = {"total": 0, "emails": 0, "gmail": 0, "websites": 0, "missing_web": 0}
+        city_counts[c_name]["total"] += 1
+        if c.business_email and c.business_email != "N/A":
+            city_counts[c_name]["emails"] += 1
+        if c.gmail_address and c.gmail_address != "N/A":
+            city_counts[c_name]["gmail"] += 1
+        if c.official_website and c.official_website != "N/A":
+            city_counts[c_name]["websites"] += 1
+        else:
+            city_counts[c_name]["missing_web"] += 1
+
+    for c_name, stats in sorted(city_counts.items()):
+        ws_city.append([c_name, stats["total"], stats["emails"], stats["gmail"], stats["websites"], stats["missing_web"]])
+    style_header_row(ws_city, len(city_headers))
+    auto_fit_columns(ws_city)
+
+    # ==========================================
+    # SHEET 3: Scrape Summary
+    # ==========================================
+    ws_summary = wb.create_sheet(title="Scrape Summary")
+    ws_summary.append(["National Roofing Directory Scrape Summary", "Value"])
+
+    missing_web_count = sum(1 for c in companies if not c.official_website or c.official_website == "N/A")
+
+    summary_rows = [
+        ("Directory Source", "National Roofing Directory (https://www.nationalroofingdirectory.com/)"),
+        ("Selected State", state_name),
+        ("City Pages Discovered", job.city_pages_discovered),
+        ("City Pages Completed", job.city_pages_completed),
+        ("Unique Profile URLs Discovered", job.unique_profiles_count or len(companies)),
+        ("Profiles Successfully Processed", job.profiles_processed or len(companies)),
+        ("Profiles with Phone", job.phones_found or sum(1 for c in companies if c.business_phone and c.business_phone != "N/A")),
+        ("Profiles with Public Email", job.emails_found or sum(1 for c in companies if c.business_email and c.business_email != "N/A")),
+        ("Profiles with Gmail Addresses", job.gmail_found or sum(1 for c in companies if c.gmail_address and c.gmail_address != "N/A")),
+        ("Profiles with Company Websites", job.websites_found or sum(1 for c in companies if c.official_website and c.official_website != "N/A")),
+        ("Profiles without Websites", missing_web_count),
+        ("Failed Profile URLs", job.failed_profiles_count),
+        ("Execution Status", job.status.upper()),
+        ("Start Time", str(job.start_time) if job.start_time else "N/A"),
+        ("End Time", str(job.end_time) if job.end_time else "In Progress"),
+        ("Export Generated At", datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"))
+    ]
+    for k, v in summary_rows:
+        ws_summary.append([k, v])
+    style_header_row(ws_summary, 2)
+    auto_fit_columns(ws_summary, min_width=25, max_width=65)
+
+    # ==========================================
+    # SHEET 4: Gmail Found
+    # ==========================================
+    ws_gmail = wb.create_sheet(title="Gmail Found")
+    ws_gmail.append(lead_headers)
+    for c in companies:
+        if c.gmail_address and c.gmail_address != "N/A":
+            ws_gmail.append(build_lead_row(c))
+    style_header_row(ws_gmail, len(lead_headers))
+    auto_fit_columns(ws_gmail)
+
+    # ==========================================
+    # SHEET 5: Emails Found
+    # ==========================================
+    ws_emails = wb.create_sheet(title="Emails Found")
+    ws_emails.append(lead_headers)
+    for c in companies:
+        has_biz = bool(c.business_email and c.business_email != "N/A")
+        has_gm = bool(c.gmail_address and c.gmail_address != "N/A")
+        if has_biz or has_gm:
+            ws_emails.append(build_lead_row(c))
+    style_header_row(ws_emails, len(lead_headers))
+    auto_fit_columns(ws_emails)
+
+    # ==========================================
+    # SHEET 6: Websites Found
+    # ==========================================
+    ws_web = wb.create_sheet(title="Websites Found")
+    ws_web.append(lead_headers)
+    for c in companies:
+        if c.official_website and c.official_website != "N/A":
+            ws_web.append(build_lead_row(c))
+    style_header_row(ws_web, len(lead_headers))
+    auto_fit_columns(ws_web)
+
+    # ==========================================
+    # SHEET 7: Missing Websites
+    # ==========================================
+    ws_missing = wb.create_sheet(title="Missing Websites")
+    ws_missing.append(lead_headers)
+    for c in companies:
+        if not c.official_website or c.official_website == "N/A":
+            ws_missing.append(build_lead_row(c))
+    style_header_row(ws_missing, len(lead_headers))
+    auto_fit_columns(ws_missing)
+
+    # ==========================================
+    # SHEET 8: Failed Profiles
+    # ==========================================
+    ws_failed = wb.create_sheet(title="Failed Profiles")
+    ws_failed.append(["Profile URL", "Failure Reason", "Timestamp"])
+    
+    # Load failed profiles from checkpoint_json
+    try:
+        cp = json.loads(job.checkpoint_json or "{}")
+        failed_list = cp.get("failed_urls", [])
+        for f_url in failed_list:
+            ws_failed.append([f_url, "HTTP 404 / Parse Error", datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")])
+    except Exception:
+        pass
+    style_header_row(ws_failed, 3)
+    auto_fit_columns(ws_failed)
+
+    # Save to file
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    clean_state = state_name.replace(" ", "_")
+    export_filename = f"National_Roofing_{clean_state}_{timestamp}.xlsx"
+    export_path = EXPORT_DIR / export_filename
+    wb.save(export_path)
+    return export_path
+
+
+def export_national_roofing_job_to_csv(job: NationalRoofingJob, companies: list[Company]) -> Path:
+    """Exports National Roofing Directory results to CSV."""
+    data = []
+    for c in companies:
+        data.append({
+            "Company Name": c.official_name or c.original_name or "N/A",
+            "Owner / Contact Name": c.owner_name or "N/A",
+            "Trades / Services": c.trades or "Roofing Contractors",
+            "City": c.city or "N/A",
+            "State": c.state or "TX",
+            "ZIP Code": c.zip_code or "N/A",
+            "Business Address": c.address or "N/A",
+            "Phone": c.business_phone or "N/A",
+            "Email": c.business_email or "N/A",
+            "Gmail Address": c.gmail_address or "N/A",
+            "Company Website URL": c.official_website or "N/A",
+            "Website Status": c.website_status or "No Website Found",
+            "Profile URL": c.directory_profile_url or "N/A",
+            "Verification Status": c.overall_verification_status or "Unverified"
+        })
+
+    df = pd.DataFrame(data)
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    clean_state = (job.state or "Texas").replace(" ", "_")
+    export_filename = f"National_Roofing_{clean_state}_{timestamp}.csv"
+    export_path = EXPORT_DIR / export_filename
+    df.to_csv(export_path, index=False, encoding="utf-8-sig")
+    return export_path
+
 
 
