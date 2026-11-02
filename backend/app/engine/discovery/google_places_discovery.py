@@ -8,7 +8,8 @@ class GooglePlacesDiscoveryAdapter(BaseDiscoveryAdapter):
     """
     Google Places API Business Discovery Adapter.
     Executes Text Search and Nearby Search, respects the 50,000m circle limit via zone tiling,
-    handles next_page_token pagination, and extracts business metadata.
+    handles next_page_token pagination, fetches Place Details for Phone & Official Website,
+    deduplicates place_ids across overlapping zones, and filters out closed businesses.
     """
     def __init__(self, api_key: str = "", extra_config: Optional[dict[str, Any]] = None):
         super().__init__(name="google_places", api_key=api_key, extra_config=extra_config)
@@ -18,6 +19,30 @@ class GooglePlacesDiscoveryAdapter(BaseDiscoveryAdapter):
     @property
     def is_configured(self) -> bool:
         return bool(self.api_key and len(self.api_key) > 10)
+
+    def fetch_place_details_sync(self, client: httpx.Client, place_id: str) -> dict[str, Any]:
+        """
+        Fetches official phone number, website URL, and verified operational status for a place.
+        Uses precise field masking to minimize Google Cloud API billing costs.
+        """
+        if not place_id or not self.is_configured:
+            return {}
+
+        params = {
+            "place_id": place_id,
+            "fields": "formatted_phone_number,international_phone_number,website,business_status,formatted_address",
+            "key": self.api_key
+        }
+
+        try:
+            resp = client.get(self.details_url, params=params, timeout=8.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get("result", {})
+        except Exception:
+            pass
+
+        return {}
 
     def discover_sync(
         self,
@@ -33,7 +58,9 @@ class GooglePlacesDiscoveryAdapter(BaseDiscoveryAdapter):
         if not self.is_configured:
             return []
 
-        leads = []
+        leads: list[DiscoveredLead] = []
+        seen_place_ids: set[str] = set()
+
         zones = LocationService.generate_search_zones(center_lat, center_lon, radius_miles)
         term = trade or industry or "contractor"
         query_text = f"{term} in {city}, {state}"
@@ -56,7 +83,8 @@ class GooglePlacesDiscoveryAdapter(BaseDiscoveryAdapter):
                 while pages_fetched < 3 and len(leads) < limit:
                     if page_token:
                         params = {"pagetoken": page_token, "key": self.api_key}
-                        time.sleep(1.8) # Google Places requires brief pause before next_page_token becomes valid
+                        # Google Places requires brief pause before next_page_token activates
+                        time.sleep(1.8)
 
                     try:
                         resp = client.get(self.text_search_url, params=params)
@@ -65,8 +93,21 @@ class GooglePlacesDiscoveryAdapter(BaseDiscoveryAdapter):
 
                         data = resp.json()
                         results = data.get("results", [])
+                        if not results:
+                            break
 
                         for place in results:
+                            place_id = place.get("place_id", "")
+                            if not place_id or place_id in seen_place_ids:
+                                continue
+
+                            # 1. Filter out permanently or temporarily closed businesses
+                            status = place.get("business_status", "OPERATIONAL").upper()
+                            if status in ["CLOSED_PERMANENTLY", "CLOSED_TEMPORARILY"]:
+                                seen_place_ids.add(place_id)
+                                continue
+
+                            # 2. Strict radius distance verification
                             geom = place.get("geometry", {}).get("location", {})
                             plat = geom.get("lat")
                             plon = geom.get("lng")
@@ -79,17 +120,36 @@ class GooglePlacesDiscoveryAdapter(BaseDiscoveryAdapter):
                                 if not is_inside:
                                     continue
 
-                            place_id = place.get("place_id", "")
+                            seen_place_ids.add(place_id)
+
+                            # 3. Retrieve Place Details for Phone & Official Website
+                            details = self.fetch_place_details_sync(client, place_id)
+
+                            # Re-verify business_status if details provides newer info
+                            detail_status = details.get("business_status", "").upper()
+                            if detail_status in ["CLOSED_PERMANENTLY", "CLOSED_TEMPORARILY"]:
+                                continue
+
+                            phone = details.get("formatted_phone_number") or details.get("international_phone_number") or ""
+                            website = details.get("website") or ""
+                            formatted_addr = details.get("formatted_address") or place.get("formatted_address") or place.get("vicinity", "")
+
                             name = place.get("name", "")
-                            vicinity = place.get("formatted_address") or place.get("vicinity", "")
+
+                            raw_meta = {
+                                **place,
+                                "details": details
+                            }
 
                             leads.append(DiscoveredLead(
                                 name=name,
                                 industry=industry,
                                 trade=trade or industry,
-                                address=vicinity,
+                                address=formatted_addr,
                                 city=city,
                                 state=state,
+                                phone=phone,
+                                website=website,
                                 latitude=plat,
                                 longitude=plon,
                                 distance_miles=dist_miles,
@@ -97,7 +157,7 @@ class GooglePlacesDiscoveryAdapter(BaseDiscoveryAdapter):
                                 provider_place_id=place_id,
                                 rating=place.get("rating"),
                                 reviews_count=place.get("user_ratings_total"),
-                                raw_metadata=place
+                                raw_metadata=raw_meta
                             ))
 
                             if len(leads) >= limit:
@@ -107,8 +167,8 @@ class GooglePlacesDiscoveryAdapter(BaseDiscoveryAdapter):
                         pages_fetched += 1
                         if not page_token:
                             break
+
                     except Exception:
                         break
 
         return leads
-

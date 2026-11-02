@@ -61,3 +61,44 @@ class DuckDuckGoAdapter(BaseAdapter):
         except Exception:
             pass
         return results
+
+    def search_sync(self, query: str, max_results: int = 5) -> list[SearchResultItem]:
+        """Synchronous search execution for background workers."""
+        headers = {
+            "User-Agent": settings.USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Referer": "https://duckduckgo.com/"
+        }
+        data = {"q": query, "b": ""}
+        results = []
+        try:
+            with httpx.Client(timeout=4.0, follow_redirects=True, headers=headers) as client:
+                resp = client.post(self.endpoint, data=data)
+                if resp.status_code == 200:
+                    soup = BeautifulSoup(resp.text, "html.parser")
+                    links = soup.find_all("div", class_="result", limit=max_results)
+                    for lk in links:
+                        title_tag = lk.find("a", class_="result__a")
+                        snippet_tag = lk.find("a", class_="result__snippet")
+                        if not title_tag:
+                            continue
+                        raw_href = title_tag.get("href", "")
+                        final_url = raw_href
+                        if "uddg=" in raw_href:
+                            try:
+                                final_url = unquote(raw_href.split("uddg=")[1].split("&")[0])
+                            except Exception:
+                                final_url = raw_href
+
+                        title = title_tag.get_text(strip=True)
+                        snippet = snippet_tag.get_text(strip=True) if snippet_tag else ""
+
+                        results.append(SearchResultItem(
+                            title=title,
+                            url=final_url,
+                            snippet=snippet,
+                            source_name="DuckDuckGo"
+                        ))
+        except Exception:
+            pass
+        return results

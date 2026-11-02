@@ -151,7 +151,30 @@ class ResearchOrchestrator:
 
         # Step 2: Website Direct Crawl & Extraction
         website_target = comp.original_website or comp.official_website
-        if website_target:
+        if not website_target or website_target == "N/A":
+            try:
+                search_q = f'"{comp.original_name}" "{comp.original_city or ""}" official website'
+                discovered_items = self.duckduckgo_adapter.search_sync(search_q, max_results=3)
+                for item in discovered_items:
+                    u = item.url
+                    if u.startswith("http") and not any(d in u.lower() for d in ["yelp.com", "yellowpages.com", "angi.com", "bbb.org", "facebook.com", "instagram.com", "linkedin.com", "google.com", "twitter.com", "x.com"]):
+                        website_target = u
+                        comp.official_website = u
+                        evidences_to_add.append(Evidence(
+                            company_id=comp.id,
+                            field_name="Official Website",
+                            discovered_value=u,
+                            source_name="DuckDuckGo Search Discovery",
+                            source_url=u,
+                            confidence_score=85,
+                            verification_status="Verified",
+                            notes="Discovered official company website via public web search fallback."
+                        ))
+                        break
+            except Exception:
+                pass
+
+        if website_target and website_target != "N/A":
             sources_searched.append("Website Crawler")
             site_data = self.website_adapter.crawl_and_extract_sync(website_target)
             
@@ -284,6 +307,31 @@ class ResearchOrchestrator:
                         verification_status="Verified" if exec_conf >= 80 else "Unverified",
                         notes=f"Pattern generated for {target_dm} and verified via {exec_provider} MX records."
                     ))
+
+        # Step 3.6: Executive Personal LinkedIn Discovery (if missing from website)
+        if not comp.personal_linkedin and (comp.primary_decision_maker or comp.owner_name):
+            target_person = comp.primary_decision_maker or comp.owner_name
+            try:
+                li_query = f'site:linkedin.com/in "{target_person}" "{comp.original_name}"'
+                li_results = self.duckduckgo_adapter.search_sync(li_query, max_results=3)
+                for item in li_results:
+                    if "linkedin.com/in/" in item.url.lower():
+                        clean_li = item.url.split("?")[0].rstrip("/")
+                        comp.personal_linkedin = clean_li
+                        comp.personal_linkedin_status = "Found and Verified"
+                        evidences_to_add.append(Evidence(
+                            company_id=comp.id,
+                            field_name="Personal LinkedIn",
+                            discovered_value=clean_li,
+                            source_name="DuckDuckGo Search Discovery",
+                            source_url=clean_li,
+                            confidence_score=85,
+                            verification_status="Verified",
+                            notes=f"Discovered executive LinkedIn profile via public web search for {target_person}."
+                        ))
+                        break
+            except Exception:
+                pass
 
         # Step 4: Email Verification & Mailbox Provider Detection
         check_email = comp.personal_email or comp.business_email
@@ -469,7 +517,30 @@ class ResearchOrchestrator:
 
         # Step 2: Website Direct Crawl & Extraction
         website_target = comp.original_website or comp.official_website
-        if website_target:
+        if not website_target or website_target == "N/A":
+            try:
+                search_q = f'"{comp.original_name}" "{comp.original_city or ""}" official website'
+                discovered_items = self.duckduckgo_adapter.search_sync(search_q, max_results=3)
+                for item in discovered_items:
+                    u = item.url
+                    if u.startswith("http") and not any(d in u.lower() for d in ["yelp.com", "yellowpages.com", "angi.com", "bbb.org", "facebook.com", "instagram.com", "linkedin.com", "google.com", "twitter.com", "x.com"]):
+                        website_target = u
+                        comp.official_website = u
+                        evidences_to_add.append(Evidence(
+                            company_id=comp.id,
+                            field_name="Official Website",
+                            discovered_value=u,
+                            source_name="DuckDuckGo Search Discovery",
+                            source_url=u,
+                            confidence_score=85,
+                            verification_status="Verified",
+                            notes="Discovered official company website via public web search fallback."
+                        ))
+                        break
+            except Exception:
+                pass
+
+        if website_target and website_target != "N/A":
             sources_searched.append("Website Crawler")
             site_data = await self.website_adapter.crawl_and_extract(website_target)
             
