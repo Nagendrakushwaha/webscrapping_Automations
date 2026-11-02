@@ -125,3 +125,4 @@ def test_google_places_deduplication_and_closed_filter():
         assert lead.reviews_count == 95
         assert lead.address == "100 Main St, Suite 200, Austin, TX 78701"
         assert lead.provider == "Google Places API"
+
