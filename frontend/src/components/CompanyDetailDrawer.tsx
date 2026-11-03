@@ -241,3 +241,4 @@ export const CompanyDetailDrawer: React.FC<CompanyDetailDrawerProps> = ({
     </div>
   );
 };
+
