@@ -111,3 +111,47 @@ export interface ApiConfig {
   has_key: boolean;
 }
 
+
+
+export interface AutomationJob {
+  id: string;
+  name: string;
+  status: string;
+  current_stage: string;
+  current_state: string;
+  current_city: string;
+  current_industry: string;
+  current_provider: string;
+  total_discovered: number;
+  unique_discovered: number;
+  duplicate_count: number;
+  enriched_count: number;
+  fully_verified_count: number;
+  high_value_prospects_count: number;
+  error_log: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NationalRoofingJob {
+  id: string;
+  state: string;
+  state_url: string;
+  target_leads: number;
+  status: string;
+  city_pages_discovered: number;
+  city_pages_processed: number;
+  pagination_pages_visited: number;
+  profiles_discovered: number;
+  unique_profiles_queued: number;
+  profiles_processed: number;
+  profiles_remaining: number;
+  duplicates_skipped: number;
+  public_emails_found: number;
+  gmail_addresses_found: number;
+  phones_found: number;
+  websites_found: number;
+  failed_profiles_count: number;
+  created_at: string;
+  updated_at: string;
+}
