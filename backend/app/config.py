@@ -49,8 +49,6 @@ class Settings(BaseSettings):
         "Chrome/124.0.0.0 Safari/537.36 AILeadIntelligence/1.0"
     )
 
-    class Config:
-        env_file = ".env"
-        extra = "allow"
+    model_config = SettingsConfigDict(env_file=".env", extra="allow")
 
 settings = Settings()
