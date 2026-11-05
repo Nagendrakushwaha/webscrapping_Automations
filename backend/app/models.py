@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import (
     Column, String, Integer, Text, Boolean, DateTime, ForeignKey, Float
 )
@@ -8,6 +8,9 @@ from .database import Base
 
 def generate_uuid():
     return str(uuid.uuid4())
+
+def utc_now():
+    return datetime.now(timezone.utc)
 
 class Job(Base):
     __tablename__ = "jobs"
@@ -32,8 +35,8 @@ class Job(Base):
     settings_json = Column(Text, default="{}")
     column_mapping_json = Column(Text, default="{}")
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     companies = relationship("Company", back_populates="job", cascade="all, delete-orphan")
 
@@ -182,9 +185,9 @@ class Company(Base):
     sources_searched = Column(Text, default="[]") # JSON list of sources
     research_history = Column(Text, default="[]")
     
-    last_checked = Column(DateTime, default=datetime.utcnow)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_checked = Column(DateTime, default=utc_now)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
     job = relationship("Job", back_populates="companies")
@@ -203,8 +206,8 @@ class Evidence(Base):
     discovered_value = Column(Text, default="")
     source_name = Column(String, default="")
     source_url = Column(Text, default="")
-    discovery_date = Column(DateTime, default=datetime.utcnow)
-    last_checked = Column(DateTime, default=datetime.utcnow)
+    discovery_date = Column(DateTime, default=utc_now)
+    last_checked = Column(DateTime, default=utc_now)
     confidence_score = Column(Integer, default=0)
     verification_status = Column(String, default="Unverified")
     notes = Column(Text, default="")
@@ -224,7 +227,7 @@ class ManualReview(Base):
     reason = Column(Text, default="")
     suggested_action = Column(Text, default="")
     review_status = Column(String, default="Pending") # Pending, Resolved, Dismissed
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
     company = relationship("Company", back_populates="manual_reviews")
 
@@ -314,10 +317,10 @@ class AutomationJob(Base):
     job_id = Column(String, default="") # Corresponding Job ID
     error_log = Column(Text, default="[]")
     
-    start_time = Column(DateTime, default=datetime.utcnow)
+    start_time = Column(DateTime, default=utc_now)
     end_time = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 
 class SavedSearchConfig(Base):
@@ -326,7 +329,7 @@ class SavedSearchConfig(Base):
     id = Column(String, primary_key=True, default=generate_uuid)
     name = Column(String, nullable=False)
     config_json = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
 
 class NationalRoofingJob(Base):
@@ -362,9 +365,9 @@ class NationalRoofingJob(Base):
     checkpoint_json = Column(Text, default="{}")       # {discovered_urls: [], processed_urls: [], failed_urls: [], pending_cities: []}
     error_log_json = Column(Text, default="[]")
     
-    start_time = Column(DateTime, default=datetime.utcnow)
+    start_time = Column(DateTime, default=utc_now)
     end_time = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 

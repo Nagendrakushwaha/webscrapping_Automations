@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 # 1. API Configurations
 class ApiConfigOut(BaseModel):
@@ -13,8 +13,7 @@ class ApiConfigOut(BaseModel):
     usage_count: int = 0
     has_key: bool = False
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ApiConfigUpdate(BaseModel):
     provider_name: str
@@ -76,8 +75,7 @@ class EvidenceOut(BaseModel):
     verification_status: str
     notes: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ManualReviewOut(BaseModel):
     id: str
@@ -90,8 +88,7 @@ class ManualReviewOut(BaseModel):
     review_status: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ManualReviewResolve(BaseModel):
     selected_value: str
@@ -109,8 +106,7 @@ class DecisionMakerOut(BaseModel):
     verification_status: str
     evidence_source: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # 5. Company Schemas
 class CompanyOut(BaseModel):
@@ -200,8 +196,7 @@ class CompanyOut(BaseModel):
     research_notes: str
     last_checked: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class CompanyDetailOut(CompanyOut):
     address: str
@@ -221,8 +216,7 @@ class CompanyDetailOut(CompanyOut):
     manual_reviews: list[ManualReviewOut] = []
     decision_makers: list[DecisionMakerOut] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # 6. Job Schemas
 class JobOut(BaseModel):
@@ -244,8 +238,7 @@ class JobOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class JobControlRequest(BaseModel):
     action: str # start, pause, resume, stop, retry_failed
@@ -295,8 +288,7 @@ class NationalRoofingJobOut(BaseModel):
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class NationalRoofingLeadOut(BaseModel):
     id: str
