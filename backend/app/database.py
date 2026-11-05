@@ -77,7 +77,7 @@ def init_db():
 
     # Seed official US Census States and Cities database
     try:
-        from .data.us_locations_seed import seed_us_locations
+        from .seeds.us_locations_seed import seed_us_locations
         with SessionLocal() as session:
             seed_us_locations(session)
     except Exception as e:
