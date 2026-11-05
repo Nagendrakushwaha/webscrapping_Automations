@@ -1,6 +1,6 @@
 import json
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Any
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from pydantic import BaseModel, Field
@@ -188,7 +188,7 @@ def control_automation_job(
             worker.stop_requested = True
         j.status = "stopped"
         j.current_stage = "Automation Stopped by User"
-        j.end_time = datetime.utcnow()
+        j.end_time = datetime.now(timezone.utc)
         db.commit()
     elif action == "retry" or action == "retry-failed":
         new_worker = AutomationWorker(automation_id=job_id, db_session_factory=SessionLocal)
