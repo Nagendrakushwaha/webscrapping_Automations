@@ -15,7 +15,7 @@ Key Capabilities:
 import re
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Any, Callable
 from urllib.parse import urljoin, urlparse
@@ -445,7 +445,7 @@ class NationalRoofingEngine:
             if not p_job:
                 p_job = Job(
                     id=parent_job_id,
-                    filename=f"National_Roofing_{(job.state or 'Texas').replace(' ', '_')}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
+                    filename=f"National_Roofing_{(job.state or 'Texas').replace(' ', '_')}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
                     total_companies=0,
                     status="processing"
                 )
@@ -650,7 +650,7 @@ class NationalRoofingEngine:
                 else:
                     job.status = "completed"
                     job.current_stage = f"Scraping completed! Extracted {job.profiles_processed} contractor records."
-                    job.end_time = datetime.utcnow()
+                    job.end_time = datetime.now(timezone.utc)
                 session.commit()
 
     @staticmethod
